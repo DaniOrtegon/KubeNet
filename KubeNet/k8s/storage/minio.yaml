@@ -1,0 +1,237 @@
+# ============================================================
+# minio.yaml — MinIO para almacenamiento de uploads WordPress
+#
+# ARQUITECTURA:
+#   - MinIO corre como Deployment en namespace 'storage'
+#   - WordPress sube los media a MinIO via plugin WP Offload Media Lite
+#   - Los pods de WordPress quedan completamente stateless
+#   - El PVC de WordPress solo guarda el código (plugins/themes)
+#     no los uploads — así el HPA puede escalar sin problemas
+#
+# ACCESO:
+#   - API S3:    minio.storage.svc.cluster.local:9000
+#   - Console:   minio.storage.svc.cluster.local:9001
+# ============================================================
+
+# --- Namespace dedicado para almacenamiento de objetos ---
+# Separado de 'wordpress' y 'databases' para aislar recursos y aplicar políticas independientes
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: storage
+  labels:
+    app.kubernetes.io/part-of: wordpress-ha
+
+---
+# --- Secret con credenciales de root de MinIO (namespace 'storage') ---
+# Usado por el servidor MinIO y por los Jobs de administración (setup, backup-cleanup, velero)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  namespace: storage
+  labels:
+    app: minio
+    app.kubernetes.io/part-of: wordpress-ha
+type: Opaque
+stringData:
+  root-user: kubenetadmin          # Usuario root de MinIO — CAMBIAR en producción
+  root-password: KubenetMinio#2006!     # Contraseña root — CAMBIAR en producción; usar Sealed Secret
+
+---
+# --- Secret con credenciales de acceso S3 (namespace 'wordpress') ---
+# Usado por el plugin WP Offload Media Lite para subir media a MinIO.
+# Claves separadas del Secret de root para seguir el principio de mínimo privilegio.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  namespace: wordpress
+  labels:
+    app: minio
+    app.kubernetes.io/part-of: wordpress-ha
+type: Opaque
+stringData:
+  access-key: kubenetadmin         # Clave de acceso S3 compatible (mismo valor que root en desarrollo)
+  secret-key: KubenetMinio#2006!        # Clave secreta S3 compatible
+
+---
+# --- PVC para almacenamiento de objetos de MinIO ---
+# Almacena los buckets 'wordpress-uploads' y 'wordpress-backups'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: storage
+  labels:
+    app: minio
+    app.kubernetes.io/part-of: wordpress-ha
+spec:
+  accessModes:
+    - ReadWriteOnce         # Un único pod escribe; MinIO standalone no requiere acceso compartido
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 10Gi         # Espacio para uploads de WordPress + backups de MariaDB (30 días)
+
+---
+# --- Deployment de MinIO ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: storage
+  labels:
+    app: minio
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/version: "RELEASE.2024-01-16T16-07-38Z"
+    app.kubernetes.io/part-of: wordpress-ha
+    app.kubernetes.io/component: storage
+spec:
+  replicas: 1   # MinIO standalone: una réplica con un PVC. Para HA se necesita modo distribuido (≥4 nodos)
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+        app.kubernetes.io/name: minio
+        app.kubernetes.io/part-of: wordpress-ha
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+          imagePullPolicy: Never   # Usa imagen precargada en Minikube; no intenta descargar de internet
+          command:
+            - minio
+            - server
+            - /data                  # Directorio de datos donde MinIO almacena los objetos (montado del PVC)
+            - --console-address
+            - ":9001"                # Activa la consola web en el puerto 9001 (separado de la API S3)
+          ports:
+            - containerPort: 9000
+              name: api              # API S3 compatible — endpoint para WordPress y herramientas CLI
+            - containerPort: 9001
+              name: console          # Consola web de administración de MinIO
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user     # Inyecta credenciales desde el Secret sin exponerlas en el YAML
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready   # Endpoint de health específico de MinIO
+              port: 9000
+            initialDelaySeconds: 20       # MinIO tarda en inicializar los discos antes de estar listo
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data             # Directorio donde MinIO almacena todos los objetos
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: minio-pvc
+
+---
+# --- Service de MinIO (ClusterIP) ---
+# Expone la API S3 y la consola web solo dentro del clúster
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: storage
+  labels:
+    app: minio
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/part-of: wordpress-ha
+spec:
+  type: ClusterIP   # No expuesto al exterior; acceso via 'kubectl port-forward' para administración
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000   # API S3: endpoint para WordPress, CronJobs de backup y Velero
+    - name: console
+      port: 9001
+      targetPort: 9001   # Consola web: interfaz gráfica de administración de buckets
+  selector:
+    app: minio
+
+---
+# --- Job de inicialización: crea los buckets necesarios en MinIO ---
+# Se ejecuta una sola vez tras el despliegue de MinIO.
+# ttlSecondsAfterFinished limpia el Job y sus pods automáticamente tras 5 minutos.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-setup
+  namespace: storage
+  labels:
+    app: minio
+    app.kubernetes.io/part-of: wordpress-ha
+spec:
+  ttlSecondsAfterFinished: 300   # Limpieza automática del Job 5 minutos después de completarse
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      restartPolicy: OnFailure   # Reintenta si MinIO no está listo todavía cuando el Job arranca
+      containers:
+        - name: setup
+          image: minio/mc:RELEASE.2024-01-16T16-07-38Z
+          imagePullPolicy: Never
+          command:
+            - sh
+            - -c
+            - |
+              echo "Esperando a MinIO..."
+              # Bucle de espera hasta que MinIO responde correctamente al alias
+              until mc alias set local http://minio.storage.svc.cluster.local:9000 \
+                    "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" &>/dev/null; do
+                sleep 3
+              done
+              echo "MinIO disponible."
+
+              # Crea el bucket de uploads con acceso público de lectura
+              # 'mc anonymous set download' permite a cualquier cliente descargar objetos sin autenticación
+              mc mb --ignore-existing local/wordpress-uploads
+              mc anonymous set download local/wordpress-uploads
+              echo "Bucket wordpress-uploads creado con acceso público de lectura."
+
+              # Crea el bucket de backups (acceso privado por defecto)
+              mc mb --ignore-existing local/wordpress-backups
+              echo "Bucket wordpress-backups creado."
+
+              echo "=== MinIO configurado ==="
+              mc ls local/   # Verifica que los buckets se han creado correctamente
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password

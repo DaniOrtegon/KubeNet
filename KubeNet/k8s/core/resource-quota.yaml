@@ -1,0 +1,98 @@
+# ============================================================
+# LimitRange para namespace 'wordpress'
+# Define valores por defecto para pods que no declaren resources.
+# Evita que un pod sin limits consuma recursos ilimitados.
+# Se aplica a nivel de Container dentro del namespace.
+# ============================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: wordpress-limitrange
+  namespace: wordpress
+spec:
+  limits:
+    - type: Container
+      default:            # Límites que se asignan automáticamente si el pod no los declara
+        cpu: 500m
+        memory: 256Mi
+      defaultRequest:     # Requests que se asignan automáticamente si el pod no los declara
+        cpu: 100m
+        memory: 128Mi
+      max:                # Techo absoluto: ningún container del namespace puede superar estos valores
+        cpu: "1"
+        memory: 1Gi
+
+---
+# ============================================================
+# ResourceQuota para namespace 'wordpress'
+# Techo total de recursos que puede consumir el namespace.
+# Con KEDA maxReplicaCount: 7 y resources por pod:
+#   requests.cpu:    7 * 100m  =  700m  → techo en 1 (1000m)
+#   requests.memory: 7 * 256Mi = 1792Mi → techo en 2Gi (margen para Jobs/CronJobs)
+#   limits.cpu:      7 * 500m  = 3500m  → techo en 4
+#   limits.memory:   7 * 512Mi = 3584Mi → techo en 4Gi
+# NOTA: La quota se alineó con KEDA maxReplicaCount:7. Antes estaba calculada
+# para HPA maxReplicas:5, dejando los pods 6-10 de KEDA en Pending silencioso.
+# ============================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: wordpress-quota
+  namespace: wordpress
+spec:
+  hard:
+    requests.cpu: "1"          # Suma máxima de CPU requests de todos los pods del namespace
+    requests.memory: 2Gi       # Suma máxima de memory requests — soporta 7 réplicas KEDA (7×256Mi=1792Mi)
+    limits.cpu: "4"            # Suma máxima de CPU limits — soporta 7 réplicas (7×500m=3500m)
+    limits.memory: 4Gi         # Suma máxima de memory limits — soporta 7 réplicas (7×512Mi=3584Mi)
+    pods: "10"                 # Máximo número de pods en el namespace (incluye pods de Jobs/CronJobs)
+    persistentvolumeclaims: "5" # Máximo número de PVCs en el namespace
+
+---
+# ============================================================
+# LimitRange para namespace 'databases'
+# MariaDB y Redis requieren más memoria que WordPress,
+# por eso los defaults son más altos.
+# ============================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: databases-limitrange
+  namespace: databases
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi      # Default más alto que WordPress: DBs son más intensivas en memoria
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "1"
+        memory: 1Gi
+
+---
+# ============================================================
+# ResourceQuota para namespace 'databases'
+# MariaDB + Redis: ambos con replicas: 1
+# ============================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: databases-quota
+  namespace: databases
+spec:
+  hard:
+    # Redis HA: 3 × (128Mi + 32Mi) = 480Mi
+    # MariaDB HA: 2 × (256Mi + 64Mi sidecar) = 640Mi
+    # Total requests ~1.1Gi → techo en 2Gi
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    # Limits: Redis 3×320Mi=960Mi + MariaDB 2×640Mi=1280Mi = ~2.2Gi → techo en 4Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
+    # 3 pods redis + 2 pods mariadb = 5 pods mínimo; margen para sidecars y jobs
+    pods: "10"
+    # 3 PVCs redis + 2 PVCs mariadb = 5 PVCs mínimo; margen para PVCs adicionales
+    persistentvolumeclaims: "8"

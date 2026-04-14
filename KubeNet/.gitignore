@@ -1,0 +1,15 @@
+# KubeNet — archivos que NO deben subirse al repositorio
+
+# Contraseñas y configuración local
+.env
+
+# Backups de YAMLs originales generados por setup.sh
+*.bak
+
+# SealedSecrets generados (contienen secretos cifrados para un clúster concreto)
+secrets/
+sealed-secrets-master-key-backup.yaml
+sealed-secrets-backup-*/
+
+# Logs temporales
+/tmp/minikube-tunnel.log
