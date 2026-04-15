@@ -1,0 +1,38 @@
+name: Despliegue a Kubernetes
+
+on:
+  push:
+    branches:
+      - main  # Ajusta a la rama que prefieras para activar el despliegue
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest  # Ejecutar en un entorno Ubuntu
+
+    steps:
+    # Paso 1: Check out del código
+    - name: Check out del código
+      uses: actions/checkout@v2
+
+    # Paso 2: Instalar kubectl (herramienta para interactuar con Kubernetes)
+    - name: Instalar kubectl
+      run: |
+        curl -LO "https://dl.k8s.io/release/v1.21.0/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+
+    # Paso 3: Instalar Helm (gestor de paquetes para Kubernetes)
+    - name: Instalar Helm
+      run: |
+        curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+
+    # Paso 4: Configurar kubeconfig
+    - name: Configurar kubeconfig
+      run: echo "$KUBECONFIG" > ~/.kube/config
+      env:
+        KUBECONFIG: ${{ secrets.KUBECONFIG }}  # Utilizar el secreto 'KUBECONFIG'
+
+    # Paso 5: Aplicar los manifiestos de Kubernetes
+    - name: Aplicar manifiestos de Kubernetes
+      run: |
+        kubectl apply -f k8s/
