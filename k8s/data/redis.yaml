@@ -29,9 +29,8 @@ data:
   redis-master.conf: |
     bind 0.0.0.0           # Escucha en todas las interfaces del Pod
     port 6379
-    requirepass oo # Contraseña para clientes que se conecten al master
-    masterauth oo  # Contraseña usada por las réplicas para autenticarse
-                            # (necesaria también en el master para cuando pase a réplica tras failover)
+    requirepass ${REDIS_PASSWORD}
+    masterauth ${REDIS_PASSWORD}
     appendonly yes          # Habilita AOF: cada escritura se registra en fichero
     appendfsync everysec    # Sincroniza AOF a disco cada segundo (balance rendimiento/durabilidad)
     save 900 1              # RDB snapshot: si ≥1 cambio en 900s → guardar
@@ -44,8 +43,8 @@ data:
   redis-replica.conf: |
     bind 0.0.0.0
     port 6379
-    requirepass oo
-    masterauth oo   # Contraseña para conectarse al master durante la replicación
+    requirepass ${REDIS_PASSWORD}
+    masterauth ${REDIS_PASSWORD}
     # FQDN del Pod master via Service headless — DNS estable garantizado por el StatefulSet
     replicaof redis-0.redis-headless.databases.svc.cluster.local 6379
     replica-read-only yes    # Las réplicas rechazan escrituras directas (solo las acepta el master)
@@ -65,7 +64,7 @@ data:
     # 127.0.0.1 6379: dirección del Redis local en el mismo Pod (loopback)
     # 2: quorum — número mínimo de Sentinels que deben acordar que el master está caído
     #    para iniciar el failover. Con 3 Sentinels, quorum=2 tolera 1 fallo de Sentinel.
-    sentinel auth-pass mymaster oo       # Contraseña para conectarse a los nodos Redis
+    sentinel auth-pass mymaster ${REDIS_PASSWORD}
     sentinel down-after-milliseconds mymaster 5000  # Tiempo sin respuesta para considerar el master caído (5s)
     sentinel failover-timeout mymaster 60000        # Timeout máximo para completar el failover (60s)
     sentinel parallel-syncs mymaster 1              # Réplicas que sincronizan simultáneamente tras failover
@@ -76,13 +75,17 @@ data:
   # La misma lógica de parsing que en MariaDB (corte por '-' invertido).
   start-redis.sh: |
     #!/bin/sh
+    # Sustituye ${REDIS_PASSWORD} en los ficheros de configuración con el valor real de la variable de entorno.
+    # envsubst lee las plantillas del ConfigMap (read-only) y escribe las versiones resueltas en /tmp.
+    envsubst < /etc/redis/redis-master.conf  > /tmp/redis-master.conf
+    envsubst < /etc/redis/redis-replica.conf > /tmp/redis-replica.conf
     ORDINAL=$(echo $HOSTNAME | rev | cut -d'-' -f1 | rev)
     if [ "$ORDINAL" = "0" ]; then
       echo "Arrancando como MASTER"
-      exec redis-server /etc/redis/redis-master.conf
+      exec redis-server /tmp/redis-master.conf
     else
       echo "Arrancando como REPLICA (ordinal $ORDINAL)"
-      exec redis-server /etc/redis/redis-replica.conf
+      exec redis-server /tmp/redis-replica.conf
     fi
 
 ---
@@ -231,26 +234,28 @@ spec:
           ports:
             - containerPort: 6379
               name: redis
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: redis-password
           resources:
             requests:
               cpu: 100m
               memory: 128Mi
             limits:
               cpu: 500m
-              memory: 256Mi   # Si se supera → OOMKill; Redis puede crecer con el dataset
-          # readinessProbe: verifica que Redis responde al comando PING.
-          # Hasta que no pase, el Pod no recibe tráfico del Service.
+              memory: 256Mi
           readinessProbe:
             exec:
-              command: [sh, -c, "redis-cli -a 'oo' ping | grep PONG"]
+              command: [sh, -c, "redis-cli -a \"${REDIS_PASSWORD}\" ping | grep PONG"]
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 3
-          # livenessProbe: detecta bloqueos o crashes del proceso Redis.
-          # Más tolerante que readiness (initialDelay mayor, más failureThreshold).
           livenessProbe:
             exec:
-              command: [sh, -c, "redis-cli -a 'oo' ping | grep PONG"]
+              command: [sh, -c, "redis-cli -a \"${REDIS_PASSWORD}\" ping | grep PONG"]
             initialDelaySeconds: 30
             periodSeconds: 20
             failureThreshold: 5
@@ -272,14 +277,19 @@ spec:
             - sh
             - -c
             - |
-              # Sentinel modifica su propio fichero de configuración en runtime
-              # (escribe el master actual, los Sentinels conocidos, etc.).
-              # El ConfigMap es read-only → se copia a un emptyDir escribible (/data).
-              cp /etc/sentinel/sentinel.conf /data/sentinel.conf
+              # envsubst resuelve ${REDIS_PASSWORD} en sentinel.conf antes de arrancarlo.
+              # El ConfigMap es read-only → se escribe la versión resuelta en el emptyDir /data.
+              envsubst < /etc/sentinel/sentinel.conf > /data/sentinel.conf
               exec redis-sentinel /data/sentinel.conf
           ports:
             - containerPort: 26379
               name: sentinel
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: redis-password
           resources:
             requests:
               cpu: 50m        # Sentinel es ligero: solo gestiona metadatos
@@ -341,3 +351,5 @@ spec:
         resources:
           requests:
             storage: 2Gi
+
+

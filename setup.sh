@@ -5,23 +5,19 @@
 # Si no existe .env, lo genera de forma interactiva preguntando
 # cada contraseña al usuario.
 #
-# Propaga las contraseñas a los YAMLs del proyecto y genera el
-# .gitignore para que no se suban al repositorio.
+# Propaga las contraseñas como Secrets de Kubernetes via
+# 'kubectl create secret --dry-run | apply' — sin tocar los
+# YAMLs del proyecto ni usar sed.
 #
-# BUG CORREGIDO: el script original guardaba el valor original
-# de cada YAML en un .bak y luego siempre leía el patrón a
-# reemplazar desde el .bak. En la segunda ejecución (p.ej. para
-# cambiar una contraseña), el .bak ya existía con los valores
-# del repo, pero el YAML ya tenía la contraseña de la primera
-# ejecución — el sed no encontraba el patrón y no hacía nada.
+# Los Secrets de MariaDB y Redis los gestiona 03-deploy-core.sh
+# via SealedSecrets (kubeseal). Este script gestiona los de
+# MinIO y Grafana, que no usan SealedSecrets.
 #
-# Solución: leer siempre el patrón actual directamente del YAML
-# que se va a modificar, no del .bak. El .bak sigue existiendo
-# como copia de seguridad del original del repo, pero ya no se
-# usa como fuente del patrón de búsqueda.
+# REQUISITO: el clúster debe estar arrancado antes de ejecutar
+# este script (minikube start).
 #
 # USO:
-#   ./setup.sh         # genera .env si no existe, luego aplica cambios
+#   ./setup.sh         # genera .env si no existe, luego aplica Secrets
 #   ./deploy.sh        # despliega
 # ============================================================
 
@@ -141,74 +137,54 @@ log_success "Contraseñas cargadas correctamente"
 echo ""
 
 # ============================================================
-# 3. Parchear redis.yaml
-#
-# BUG CORREGIDO: leer el patrón actual DESDE EL YAML,
-# no desde el .bak (que contiene los valores originales del repo).
+# 3. Verificar que el clúster está disponible
 # ============================================================
-REDIS_YAML="$SCRIPT_DIR/k8s/data/redis.yaml"
-log_info "Parcheando redis.yaml..."
-
-[ ! -f "${REDIS_YAML}.bak" ] && cp "$REDIS_YAML" "${REDIS_YAML}.bak"
-
-# Leer valor actual directamente del YAML (no del .bak)
-CURRENT_REDIS_PASS=$(grep -m1 'requirepass ' "$REDIS_YAML" | awk '{print $2}')
-
-if [ -n "$CURRENT_REDIS_PASS" ] && [ "$CURRENT_REDIS_PASS" != "$REDIS_PASSWORD" ]; then
-  sed -i "s|requirepass ${CURRENT_REDIS_PASS}|requirepass ${REDIS_PASSWORD}|g" "$REDIS_YAML"
-  sed -i "s|masterauth ${CURRENT_REDIS_PASS}|masterauth ${REDIS_PASSWORD}|g" "$REDIS_YAML"
-  sed -i "s|sentinel auth-pass mymaster ${CURRENT_REDIS_PASS}|sentinel auth-pass mymaster ${REDIS_PASSWORD}|g" "$REDIS_YAML"
-  sed -i "s|redis-cli -a '${CURRENT_REDIS_PASS}'|redis-cli -a '${REDIS_PASSWORD}'|g" "$REDIS_YAML"
-  log_success "redis.yaml actualizado"
-elif [ "$CURRENT_REDIS_PASS" = "$REDIS_PASSWORD" ]; then
-  log_success "redis.yaml ya tiene la contraseña correcta — sin cambios"
-else
-  log_warn "No se encontró la contraseña en redis.yaml — verifica manualmente"
+if ! kubectl cluster-info &>/dev/null; then
+  log_error "No se puede conectar al clúster. Arranca Minikube primero: minikube start"
 fi
 
 # ============================================================
-# 4. Parchear minio.yaml
+# 4. Inyectar Secret de MinIO
+#
+# minio-secret en 'storage': usado por el servidor MinIO
+# minio-secret en 'wordpress': usado por WP Offload Media (AS3CF)
+# Los namespaces los crea k8s/core/namespace.yaml en el paso 03.
 # ============================================================
-MINIO_YAML="$SCRIPT_DIR/k8s/storage/minio.yaml"
-log_info "Parcheando minio.yaml..."
+log_info "Inyectando secret de MinIO..."
 
-[ ! -f "${MINIO_YAML}.bak" ] && cp "$MINIO_YAML" "${MINIO_YAML}.bak"
+kubectl create secret generic minio-secret \
+  --namespace storage \
+  --from-literal=root-user="${MINIO_ROOT_USER}" \
+  --from-literal=root-password="${MINIO_ROOT_PASSWORD}" \
+  --dry-run=client -o yaml | kubectl apply -f - \
+  || log_error "Error aplicando minio-secret en namespace 'storage'"
+log_success "minio-secret (storage) aplicado"
 
-# Leer valores actuales del YAML (no del .bak)
-CURRENT_MINIO_USER=$(grep -m1 'root-user:'     "$MINIO_YAML" | awk '{print $2}')
-CURRENT_MINIO_PASS=$(grep -m1 'root-password:' "$MINIO_YAML" | awk '{print $2}')
-CURRENT_ACCESS=$(grep    -m1 'access-key:'     "$MINIO_YAML" | awk '{print $2}')
-CURRENT_SECRET=$(grep    -m1 'secret-key:'     "$MINIO_YAML" | awk '{print $2}')
-
-[ -n "$CURRENT_MINIO_USER" ] && sed -i "s|root-user: ${CURRENT_MINIO_USER}|root-user: ${MINIO_ROOT_USER}|g"             "$MINIO_YAML"
-[ -n "$CURRENT_MINIO_PASS" ] && sed -i "s|root-password: ${CURRENT_MINIO_PASS}|root-password: ${MINIO_ROOT_PASSWORD}|g" "$MINIO_YAML"
-[ -n "$CURRENT_ACCESS" ]     && sed -i "s|access-key: ${CURRENT_ACCESS}|access-key: ${MINIO_ROOT_USER}|g"               "$MINIO_YAML"
-[ -n "$CURRENT_SECRET" ]     && sed -i "s|secret-key: ${CURRENT_SECRET}|secret-key: ${MINIO_ROOT_PASSWORD}|g"           "$MINIO_YAML"
-
-log_success "minio.yaml actualizado"
-
-# ============================================================
-# 5. Parchear grafana.yaml
-# ============================================================
-GRAFANA_YAML="$SCRIPT_DIR/k8s/observability/grafana.yaml"
-log_info "Parcheando grafana.yaml..."
-
-[ ! -f "${GRAFANA_YAML}.bak" ] && cp "$GRAFANA_YAML" "${GRAFANA_YAML}.bak"
-
-GRAFANA_USER_B64=$(echo -n "$GRAFANA_ADMIN_USER"     | base64)
-GRAFANA_PASS_B64=$(echo -n "$GRAFANA_ADMIN_PASSWORD" | base64)
-
-# Leer valores actuales del YAML (no del .bak)
-CURRENT_USER_B64=$(grep 'admin-user:'     "$GRAFANA_YAML" | awk '{print $2}')
-CURRENT_PASS_B64=$(grep 'admin-password:' "$GRAFANA_YAML" | awk '{print $2}')
-
-[ -n "$CURRENT_USER_B64" ] && sed -i "s|admin-user: ${CURRENT_USER_B64}|admin-user: ${GRAFANA_USER_B64}|g"         "$GRAFANA_YAML"
-[ -n "$CURRENT_PASS_B64" ] && sed -i "s|admin-password: ${CURRENT_PASS_B64}|admin-password: ${GRAFANA_PASS_B64}|g" "$GRAFANA_YAML"
-
-log_success "grafana.yaml actualizado"
+kubectl create secret generic minio-secret \
+  --namespace wordpress \
+  --from-literal=access-key="${MINIO_ROOT_USER}" \
+  --from-literal=secret-key="${MINIO_ROOT_PASSWORD}" \
+  --dry-run=client -o yaml | kubectl apply -f - \
+  || log_error "Error aplicando minio-secret en namespace 'wordpress'"
+log_success "minio-secret (wordpress) aplicado"
 
 # ============================================================
-# 6. Añadir .gitignore si no existe o completarlo
+# 5. Inyectar Secret de Grafana
+#
+# grafana-secret en 'monitoring': usuario y contraseña admin
+# ============================================================
+log_info "Inyectando secret de Grafana..."
+
+kubectl create secret generic grafana-secret \
+  --namespace monitoring \
+  --from-literal=admin-user="${GRAFANA_ADMIN_USER}" \
+  --from-literal=admin-password="${GRAFANA_ADMIN_PASSWORD}" \
+  --dry-run=client -o yaml | kubectl apply -f - \
+  || log_error "Error aplicando grafana-secret en namespace 'monitoring'"
+log_success "grafana-secret (monitoring) aplicado"
+
+# ============================================================
+# 6. Actualizar .gitignore
 # ============================================================
 GITIGNORE="$SCRIPT_DIR/.gitignore"
 GITIGNORE_ENTRIES=(
@@ -237,16 +213,17 @@ echo -e "${GREEN}============================================================${N
 echo -e "${GREEN}   ✅  Configuración completada${NC}"
 echo -e "${GREEN}============================================================${NC}"
 echo ""
-echo -e "  Archivos actualizados:"
-echo -e "    ${GREEN}✓${NC} k8s/data/redis.yaml"
-echo -e "    ${GREEN}✓${NC} k8s/storage/minio.yaml"
-echo -e "    ${GREEN}✓${NC} k8s/observability/grafana.yaml"
-echo -e "    ${GREEN}✓${NC} .gitignore"
+echo -e "  Secrets aplicados en el clúster:"
+echo -e "    ${GREEN}✓${NC} minio-secret     (storage, wordpress)"
+echo -e "    ${GREEN}✓${NC} grafana-secret   (monitoring)"
 echo ""
-echo -e "  Los originales del repo tienen copia en ${YELLOW}*.bak${NC}"
+echo -e "  Los secrets de MariaDB y Redis los gestiona:"
+echo -e "    ${YELLOW}→${NC} scripts/03-deploy-core.sh  (via SealedSecrets)"
+echo ""
 echo -e "  El archivo ${YELLOW}.env${NC} y la carpeta ${YELLOW}secrets/${NC} están en .gitignore."
 echo ""
 echo -e "${BLUE}  Siguiente paso → despliega el proyecto:${NC}"
-echo -e "  ${GREEN}minikube start --cpus=4 --memory=8192${NC}"
 echo -e "  ${GREEN}./deploy.sh${NC}"
 echo ""
+
+

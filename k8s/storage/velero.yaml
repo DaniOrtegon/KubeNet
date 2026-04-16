@@ -48,8 +48,8 @@ spec:
       restartPolicy: OnFailure   # Reintenta si MinIO no está disponible todavía
       containers:
         - name: mc
-          image: minio/mc:RELEASE.2024-01-16T16-07-38Z
-          imagePullPolicy: Never
+          image: minio/mc:latest
+          imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -c
@@ -74,12 +74,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: minio-secret
-                  key: access-key       # Nota: usa las claves 'access-key'/'secret-key' (mismo valor que root en desarrollo)
+                  key: root-user        # Corregido: el secret en namespace 'storage' usa root-user/root-password
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: minio-secret
-                  key: secret-key
+                  key: root-password
           resources:
             requests:
               cpu: 50m

@@ -23,37 +23,20 @@ metadata:
     app.kubernetes.io/part-of: wordpress-ha
 
 ---
-# --- Secret con credenciales de root de MinIO (namespace 'storage') ---
-# Usado por el servidor MinIO y por los Jobs de administración (setup, backup-cleanup, velero)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-secret
-  namespace: storage
-  labels:
-    app: minio
-    app.kubernetes.io/part-of: wordpress-ha
-type: Opaque
-stringData:
-  root-user: oo          # Usuario root de MinIO — CAMBIAR en producción
-  root-password: oo     # Contraseña root — CAMBIAR en producción; usar Sealed Secret
+# --- Secret minio-secret (namespace 'storage') ---
+# Creado por setup.sh via:
+#   kubectl create secret generic minio-secret -n storage \
+#     --from-literal=root-user=admin \
+#     --from-literal=root-password="$MINIO_ROOT_PASSWORD"
+# NO incluir credenciales en este fichero.
 
 ---
-# --- Secret con credenciales de acceso S3 (namespace 'wordpress') ---
-# Usado por el plugin WP Offload Media Lite para subir media a MinIO.
-# Claves separadas del Secret de root para seguir el principio de mínimo privilegio.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-secret
-  namespace: wordpress
-  labels:
-    app: minio
-    app.kubernetes.io/part-of: wordpress-ha
-type: Opaque
-stringData:
-  access-key: oo         # Clave de acceso S3 compatible (mismo valor que root en desarrollo)
-  secret-key: oo        # Clave secreta S3 compatible
+# --- Secret minio-secret (namespace 'wordpress') ---
+# Creado por setup.sh via:
+#   kubectl create secret generic minio-secret -n wordpress \
+#     --from-literal=access-key=admin \
+#     --from-literal=secret-key="$MINIO_ROOT_PASSWORD"
+# NO incluir credenciales en este fichero.
 
 ---
 # --- PVC para almacenamiento de objetos de MinIO ---
@@ -235,3 +218,6 @@ spec:
                 secretKeyRef:
                   name: minio-secret
                   key: root-password
+
+
+

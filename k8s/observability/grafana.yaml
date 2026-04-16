@@ -8,6 +8,16 @@
 # --- PersistentVolumeClaim para Grafana ---
 apiVersion: v1
 kind: PersistentVolumeClaim
+meta# ============================================================
+# GRAFANA - Namespace: monitoring
+# Visualización de métricas (Prometheus) y logs (Loki)
+# Acceso: http://<minikube-ip>:30030
+# ============================================================
+
+# Almacena la base de datos SQLite de Grafana: usuarios, orgs, alertas y ajustes de la UI
+# --- PersistentVolumeClaim para Grafana ---
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata:
   name: grafana-pvc
   namespace: monitoring
@@ -20,18 +30,12 @@ spec:
   storageClassName: standard
 
 ---
-# Credenciales del administrador; los valores están en base64 (no cifrados)
-# Inyectados como variables de entorno GF_SECURITY_ADMIN_USER y GF_SECURITY_ADMIN_PASSWORD
-# --- Secret con credenciales de Grafana ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-secret
-  namespace: monitoring
-type: Opaque
-data:
-  admin-user: b28=          # 'admin' en base64
-  admin-password: b28=  # 'admin123' en base64 — CAMBIAR en producción
+# --- Secret grafana-secret (namespace 'monitoring') ---
+# Creado por setup.sh via:
+#   kubectl create secret generic grafana-secret -n monitoring \
+#     --from-literal=admin-user=admin \
+#     --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD"
+# NO incluir credenciales en este fichero.
 
 ---
 # --- ConfigMap: provisioning de datasources (Prometheus + Loki) ---
@@ -1389,3 +1393,1381 @@ spec:
       targetPort: 3000
   selector:
     app: grafana
+
+data:
+  name: grafana-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+# --- Secret grafana-secret (namespace 'monitoring') ---
+# Creado por setup.sh via:
+#   kubectl create secret generic grafana-secret -n monitoring \
+#     --from-literal=admin-user=admin \
+#     --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD"
+# NO incluir credenciales en este fichero.
+
+---
+# --- ConfigMap: provisioning de datasources (Prometheus + Loki) ---
+# Grafana carga este fichero al arrancar y configura las fuentes de datos automáticamente
+# access: proxy — Grafana hace las consultas desde el servidor, no desde el browser del usuario
+# isDefault: true en Prometheus — se usa como datasource por defecto en nuevos paneles
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.monitoring.svc.cluster.local:9090
+        isDefault: true
+        editable: false
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.monitoring.svc.cluster.local:3100
+        editable: false
+
+---
+# Indica a Grafana dónde buscar ficheros JSON de dashboards para importar automáticamente
+# disableDeletion: true — los dashboards provisionados no se pueden borrar desde la UI
+# updateIntervalSeconds: 30 — Grafana recarga los dashboards del disco cada 30 segundos
+# --- ConfigMap: provisioning de dashboards ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: 'default'
+        orgId: 1
+        folder: 'Kubernetes'
+        type: file
+        disableDeletion: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: true
+
+---
+# Dashboard básico de Kubernetes con paneles de pods running, CPU y memoria por namespace
+# Requiere métricas de kube-state-metrics (kube_pod_status_phase) y cAdvisor
+# --- ConfigMap: Dashboard de Kubernetes ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-kubernetes
+  namespace: monitoring
+data:
+  kubernetes.json: |
+    {
+      "title": "Kubernetes Overview",
+      "uid": "k8s-overview",
+      "schemaVersion": 36,
+      "panels": [
+        {
+          "title": "Pods Running por Namespace",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "targets": [{
+            "expr": "count(kube_pod_status_phase{phase='Running'}) by (namespace)",
+            "legendFormat": "{{namespace}}"
+          }]
+        },
+        {
+          "title": "CPU Usage por Pod",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [{
+            "expr": "sum(rate(container_cpu_usage_seconds_total{container!=''}[5m])) by (pod, namespace)",
+            "legendFormat": "{{namespace}}/{{pod}}"
+          }]
+        },
+        {
+          "title": "Memoria Usage por Pod",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "targets": [{
+            "expr": "sum(container_memory_working_set_bytes{container!=''}) by (pod, namespace)",
+            "legendFormat": "{{namespace}}/{{pod}}"
+          }]
+        }
+      ]
+    }
+
+---
+# Dashboard completo del proyecto con vistas por namespace, WordPress, MariaDB, Redis y red
+# Incluye variables de template para filtrar por namespace
+# Los paneles de SLO requieren métricas del NGINX Ingress Controller
+# --- ConfigMap: Dashboard personalizado WordPress K8s ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-wordpress-k8s
+  namespace: monitoring
+data:
+  wordpress-k8s.json: |
+    {
+        "title": "WordPress K8s - Project Dashboard",
+        "uid": "wordpress-k8s-project",
+        "schemaVersion": 38,
+        "version": 1,
+        "refresh": "30s",
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "templating": {
+            "list": [
+                {
+                    "name": "datasource",
+                    "type": "datasource",
+                    "label": "Prometheus",
+                    "pluginId": "prometheus",
+                    "pluginName": "Prometheus",
+                    "current": {},
+                    "hide": 0,
+                    "refresh": 1
+                },
+                {
+                    "name": "namespace",
+                    "type": "custom",
+                    "label": "Namespace",
+                    "current": {
+                        "text": "All",
+                        "value": "$__all"
+                    },
+                    "options": [
+                        {
+                            "text": "All",
+                            "value": "$__all",
+                            "selected": true
+                        },
+                        {
+                            "text": "wordpress",
+                            "value": "wordpress"
+                        },
+                        {
+                            "text": "databases",
+                            "value": "databases"
+                        },
+                        {
+                            "text": "monitoring",
+                            "value": "monitoring"
+                        },
+                        {
+                            "text": "security",
+                            "value": "security"
+                        }
+                    ],
+                    "multi": true,
+                    "includeAll": true
+                }
+            ]
+        },
+        "panels": [
+            {
+                "id": 1,
+                "title": "\ud83d\udfe2 Pods Running",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 0,
+                    "y": 0
+                },
+                "options": {
+                    "colorMode": "background",
+                    "graphMode": "none",
+                    "textMode": "value_and_name"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 1
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "count(kube_pod_status_phase{phase=\"Running\"})",
+                        "legendFormat": "Running",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 2,
+                "title": "\ud83d\udd34 Pods con Problemas",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 4,
+                    "y": 0
+                },
+                "options": {
+                    "colorMode": "background",
+                    "graphMode": "none"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 1
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "count(kube_pod_status_phase{phase!~\"Running|Succeeded\"}) or vector(0)",
+                        "legendFormat": "Con problemas",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 3,
+                "title": "\ud83d\udd04 Reinicios de Pods (\u00faltima hora)",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 8,
+                    "y": 0
+                },
+                "options": {
+                    "colorMode": "background",
+                    "graphMode": "none"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 1
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 5
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(increase(kube_pod_container_status_restarts_total[1h])) or vector(0)",
+                        "legendFormat": "Reinicios",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 4,
+                "title": "\ud83d\udcbb CPU Total del Cl\u00faster",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 12,
+                    "y": 0
+                },
+                "options": {
+                    "colorMode": "background",
+                    "graphMode": "area"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.6
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 0.8
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\"}[5m])) / sum(machine_cpu_cores)",
+                        "legendFormat": "CPU %",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 5,
+                "title": "\ud83e\udde0 Memoria Total del Cl\u00faster",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 16,
+                    "y": 0
+                },
+                "options": {
+                    "colorMode": "background",
+                    "graphMode": "area"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.6
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 0.8
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(container_memory_working_set_bytes{container!=\"\", container!=\"POD\"}) / sum(machine_memory_bytes)",
+                        "legendFormat": "Memoria %",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 6,
+                "title": "\ud83d\udce6 Total Namespaces activos",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 4,
+                    "x": 20,
+                    "y": 0
+                },
+                "options": {
+                    "colorMode": "background",
+                    "graphMode": "none"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "blue",
+                                    "value": 0
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "count(count(kube_pod_status_phase{phase=\"Running\"}) by (namespace))",
+                        "legendFormat": "Namespaces",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 10,
+                "title": "\ud83d\udccb Estado de todos los Pods",
+                "type": "table",
+                "gridPos": {
+                    "h": 10,
+                    "w": 24,
+                    "x": 0,
+                    "y": 4
+                },
+                "options": {
+                    "sortBy": [
+                        {
+                            "displayName": "Namespace"
+                        }
+                    ],
+                    "footer": {
+                        "show": false
+                    }
+                },
+                "fieldConfig": {
+                    "defaults": {},
+                    "overrides": [
+                        {
+                            "matcher": {
+                                "id": "byName",
+                                "options": "phase"
+                            },
+                            "properties": [
+                                {
+                                    "id": "custom.displayMode",
+                                    "value": "color-background"
+                                },
+                                {
+                                    "id": "thresholds",
+                                    "value": {
+                                        "steps": [
+                                            {
+                                                "color": "green",
+                                                "value": null
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "id": "mappings",
+                                    "value": [
+                                        {
+                                            "type": "value",
+                                            "options": {
+                                                "Running": {
+                                                    "color": "green",
+                                                    "text": "\u2705 Running"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "type": "value",
+                                            "options": {
+                                                "Pending": {
+                                                    "color": "yellow",
+                                                    "text": "\u23f3 Pending"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "type": "value",
+                                            "options": {
+                                                "Failed": {
+                                                    "color": "red",
+                                                    "text": "\u274c Failed"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "type": "value",
+                                            "options": {
+                                                "CrashLoopBackOff": {
+                                                    "color": "red",
+                                                    "text": "\ud83d\udd34 CrashLoop"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "targets": [
+                    {
+                        "expr": "kube_pod_status_phase",
+                        "instant": true,
+                        "legendFormat": "",
+                        "format": "table",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "transformations": [
+                    {
+                        "id": "filterFieldsByName",
+                        "options": {
+                            "include": {
+                                "names": [
+                                    "namespace",
+                                    "pod",
+                                    "phase",
+                                    "Value"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "id": "filterByValue",
+                        "options": {
+                            "filters": [
+                                {
+                                    "fieldName": "Value",
+                                    "config": {
+                                        "id": "greater",
+                                        "options": {
+                                            "value": 0
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 20,
+                "title": "\ud83d\udda5\ufe0f CPU por Namespace",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 14
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "cores",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 10
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\"}[5m])) by (namespace)",
+                        "legendFormat": "{{namespace}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 21,
+                "title": "\ud83e\udde0 Memoria por Namespace",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 14
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 10
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(container_memory_working_set_bytes{container!=\"\", container!=\"POD\"}) by (namespace)",
+                        "legendFormat": "{{namespace}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 30,
+                "title": "\ud83c\udf10 WordPress",
+                "type": "row",
+                "gridPos": {
+                    "h": 1,
+                    "w": 24,
+                    "x": 0,
+                    "y": 22
+                },
+                "collapsed": false
+            },
+            {
+                "id": 31,
+                "title": "WordPress - CPU",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 7,
+                    "w": 8,
+                    "x": 0,
+                    "y": 23
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "cores",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 15
+                        },
+                        "color": {
+                            "fixedColor": "#5794F2",
+                            "mode": "fixed"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"wordpress\", container!=\"\", container!=\"POD\"}[5m])) by (pod)",
+                        "legendFormat": "{{pod}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 32,
+                "title": "WordPress - Memoria",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 7,
+                    "w": 8,
+                    "x": 8,
+                    "y": 23
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 15
+                        },
+                        "color": {
+                            "fixedColor": "#5794F2",
+                            "mode": "fixed"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(container_memory_working_set_bytes{namespace=\"wordpress\", container!=\"\", container!=\"POD\"}) by (pod)",
+                        "legendFormat": "{{pod}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 33,
+                "title": "WordPress - Reinicios",
+                "type": "stat",
+                "gridPos": {
+                    "h": 7,
+                    "w": 8,
+                    "x": 16,
+                    "y": 23
+                },
+                "options": {
+                    "colorMode": "background",
+                    "graphMode": "area"
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 1
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 3
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"wordpress\"}[1h])) by (pod)",
+                        "legendFormat": "{{pod}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 40,
+                "title": "\ud83d\uddc4\ufe0f Bases de Datos",
+                "type": "row",
+                "gridPos": {
+                    "h": 1,
+                    "w": 24,
+                    "x": 0,
+                    "y": 30
+                },
+                "collapsed": false
+            },
+            {
+                "id": 41,
+                "title": "MariaDB - CPU",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 7,
+                    "w": 8,
+                    "x": 0,
+                    "y": 31
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "cores",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 15
+                        },
+                        "color": {
+                            "fixedColor": "#FF9830",
+                            "mode": "fixed"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"databases\", container=\"mariadb\"}[5m])) by (pod)",
+                        "legendFormat": "{{pod}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 42,
+                "title": "MariaDB - Memoria",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 7,
+                    "w": 8,
+                    "x": 8,
+                    "y": 31
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 15
+                        },
+                        "color": {
+                            "fixedColor": "#FF9830",
+                            "mode": "fixed"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(container_memory_working_set_bytes{namespace=\"databases\", container=\"mariadb\"}) by (pod)",
+                        "legendFormat": "{{pod}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 43,
+                "title": "Redis - CPU",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 7,
+                    "w": 8,
+                    "x": 16,
+                    "y": 31
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "cores",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 15
+                        },
+                        "color": {
+                            "fixedColor": "#E02F44",
+                            "mode": "fixed"
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"databases\", container=\"redis\"}[5m])) by (pod)",
+                        "legendFormat": "{{pod}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 50,
+                "title": "\ud83d\udcca Red",
+                "type": "row",
+                "gridPos": {
+                    "h": 1,
+                    "w": 24,
+                    "x": 0,
+                    "y": 38
+                },
+                "collapsed": false
+            },
+            {
+                "id": 51,
+                "title": "Red - Tr\u00e1fico entrante por Namespace",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 7,
+                    "w": 12,
+                    "x": 0,
+                    "y": 39
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "Bps",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 10
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"wordpress|databases|monitoring\"}[5m])) by (namespace)",
+                        "legendFormat": "\u2193 {{namespace}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 52,
+                "title": "Red - Tr\u00e1fico saliente por Namespace",
+                "type": "timeseries",
+                "gridPos": {
+                    "h": 7,
+                    "w": 12,
+                    "x": 12,
+                    "y": 39
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "Bps",
+                        "custom": {
+                            "lineWidth": 2,
+                            "fillOpacity": 10
+                        }
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"wordpress|databases|monitoring\"}[5m])) by (namespace)",
+                        "legendFormat": "\u2191 {{namespace}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 60,
+                "title": "\ud83d\udcbe Almacenamiento",
+                "type": "row",
+                "gridPos": {
+                    "h": 1,
+                    "w": 24,
+                    "x": 0,
+                    "y": 46
+                },
+                "collapsed": false
+            },
+            {
+                "id": 61,
+                "title": "PVCs - Uso de almacenamiento",
+                "type": "bargauge",
+                "gridPos": {
+                    "h": 7,
+                    "w": 12,
+                    "x": 0,
+                    "y": 47
+                },
+                "options": {
+                    "orientation": "horizontal",
+                    "reduceOptions": {
+                        "calcs": [
+                            "lastNotNull"
+                        ]
+                    }
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.7
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 0.9
+                                }
+                            ]
+                        },
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "min": 0,
+                        "max": 1
+                    }
+                },
+                "targets": [
+                    {
+                        "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
+                        "legendFormat": "{{persistentvolumeclaim}}",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 62,
+                "title": "PVCs - Espacio usado vs disponible",
+                "type": "table",
+                "gridPos": {
+                    "h": 7,
+                    "w": 12,
+                    "x": 12,
+                    "y": 47
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes"
+                    },
+                    "overrides": [
+                        {
+                            "matcher": {
+                                "id": "byName",
+                                "options": "Usado"
+                            },
+                            "properties": [
+                                {
+                                    "id": "unit",
+                                    "value": "bytes"
+                                }
+                            ]
+                        },
+                        {
+                            "matcher": {
+                                "id": "byName",
+                                "options": "Capacidad"
+                            },
+                            "properties": [
+                                {
+                                    "id": "unit",
+                                    "value": "bytes"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "targets": [
+                    {
+                        "expr": "kubelet_volume_stats_used_bytes",
+                        "legendFormat": "{{persistentvolumeclaim}}",
+                        "instant": true,
+                        "format": "table",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 70,
+                "title": "\ud83d\udea8 Alertas",
+                "type": "row",
+                "gridPos": {
+                    "h": 1,
+                    "w": 24,
+                    "x": 0,
+                    "y": 54
+                },
+                "collapsed": false
+            },
+            {
+                "id": 71,
+                "title": "Pods con problemas de imagen",
+                "type": "table",
+                "gridPos": {
+                    "h": 6,
+                    "w": 12,
+                    "x": 0,
+                    "y": 55
+                },
+                "fieldConfig": {
+                    "defaults": {}
+                },
+                "targets": [
+                    {
+                        "expr": "kube_pod_container_status_waiting_reason{reason=~\"ErrImagePull|ImagePullBackOff|CrashLoopBackOff|OOMKilled\"} == 1",
+                        "instant": true,
+                        "format": "table",
+                        "legendFormat": "",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "transformations": [
+                    {
+                        "id": "filterFieldsByName",
+                        "options": {
+                            "include": {
+                                "names": [
+                                    "namespace",
+                                    "pod",
+                                    "container",
+                                    "reason"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            },
+            {
+                "id": 72,
+                "title": "Pods no programados",
+                "type": "table",
+                "gridPos": {
+                    "h": 6,
+                    "w": 12,
+                    "x": 12,
+                    "y": 55
+                },
+                "fieldConfig": {
+                    "defaults": {}
+                },
+                "targets": [
+                    {
+                        "expr": "kube_pod_status_scheduled{condition=\"false\"} == 1",
+                        "instant": true,
+                        "format": "table",
+                        "legendFormat": "",
+                        "datasource": {
+                            "type": "prometheus",
+                            "uid": "${datasource}"
+                        }
+                    }
+                ],
+                "transformations": [
+                    {
+                        "id": "filterFieldsByName",
+                        "options": {
+                            "include": {
+                                "names": [
+                                    "namespace",
+                                    "pod",
+                                    "condition"
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${datasource}"
+                }
+            }
+        ]
+    }
+
+---
+# --- Deployment de Grafana ---
+# Monta todos los ConfigMaps de provisioning y el PVC de datos
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 472       # UID/GID del usuario grafana en la imagen oficial — acceso de escritura al PVC
+        runAsUser: 472
+        runAsNonRoot: true  # Cumple con PodSecurityStandard baseline
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.3   # Versión fija para reproducibilidad
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-password
+            - name: GF_PATHS_PROVISIONING
+              value: /etc/grafana/provisioning  # Indica a Grafana el directorio raíz de provisioning (datasources + dashboards)
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana           # PVC: persiste SQLite, plugins instalados y sesiones
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources  # ConfigMap grafana-datasources: Prometheus + Loki
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards  # ConfigMap grafana-dashboard-provider: indica dónde leer los JSON
+            - name: dashboard-kubernetes
+              mountPath: /var/lib/grafana/dashboards/kubernetes.json
+              subPath: kubernetes.json   # subPath: monta solo este fichero sin sobrescribir el directorio
+            - name: dashboard-wordpress-k8s
+              mountPath: /var/lib/grafana/dashboards/wordpress-k8s.json
+              subPath: wordpress-k8s.json  # Dashboard completo del proyecto KubeNet
+      volumes:
+        - name: grafana-storage
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboard-kubernetes
+          configMap:
+            name: grafana-dashboard-kubernetes
+        - name: dashboard-wordpress-k8s
+          configMap:
+            name: grafana-dashboard-wordpress-k8s
+
+---
+# --- Service de Grafana (ClusterIP) ---
+# Expuesto al exterior via Ingress (08-ingress.yaml) en grafana.monitoring.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  type: ClusterIP   # Solo acceso interno; el Ingress termina TLS y hace proxy hacia este Service
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: grafana
+
+
