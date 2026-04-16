@@ -417,35 +417,38 @@ data:
     receivers:
       - name: 'default-receiver'   # Receptor vacío para alertas no enrutadas (sin-ops silencioso)
 
+      # NOTA: Los receptores de Slack están desactivados hasta configurar el webhook real.
+      # Para activarlos, reemplaza CHANGE_ME_SLACK_WEBHOOK_URL por tu Incoming Webhook
+      # y descomenta los bloques slack_configs correspondientes.
       - name: 'critical-receiver'
-        slack_configs:
-          - api_url: 'CHANGE_ME_SLACK_WEBHOOK_URL'  # Cambiar por tu Incoming Webhook de Slack
-            channel: '#alertas-k8s'
-            icon_emoji: ':fire:'
-            send_resolved: true    # Notifica también cuando la alerta se resuelve
-            title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
-            text: |
-              {{ range .Alerts }}
-              *Severidad:* {{ .Labels.severity }}
-              *Namespace:* {{ .Labels.namespace }}
-              *Pod:* {{ .Labels.pod }}
-              *Descripción:* {{ .Annotations.description }}
-              {{ end }}
+        # slack_configs:
+        #   - api_url: 'https://hooks.slack.com/services/XXX/YYY/ZZZ'
+        #     channel: '#alertas-k8s'
+        #     icon_emoji: ':fire:'
+        #     send_resolved: true
+        #     title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+        #     text: |
+        #       {{ range .Alerts }}
+        #       *Severidad:* {{ .Labels.severity }}
+        #       *Namespace:* {{ .Labels.namespace }}
+        #       *Pod:* {{ .Labels.pod }}
+        #       *Descripción:* {{ .Annotations.description }}
+        #       {{ end }}
 
       - name: 'warning-receiver'
-        slack_configs:
-          - api_url: 'CHANGE_ME_SLACK_WEBHOOK_URL'  # Cambiar por tu Incoming Webhook de Slack
-            channel: '#alertas-k8s'
-            icon_emoji: ':warning:'
-            send_resolved: true
-            title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
-            text: |
-              {{ range .Alerts }}
-              *Severidad:* {{ .Labels.severity }}
-              *Namespace:* {{ .Labels.namespace }}
-              *Pod:* {{ .Labels.pod }}
-              *Descripción:* {{ .Annotations.description }}
-              {{ end }}
+        # slack_configs:
+        #   - api_url: 'https://hooks.slack.com/services/XXX/YYY/ZZZ'
+        #     channel: '#alertas-k8s'
+        #     icon_emoji: ':warning:'
+        #     send_resolved: true
+        #     title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+        #     text: |
+        #       {{ range .Alerts }}
+        #       *Severidad:* {{ .Labels.severity }}
+        #       *Namespace:* {{ .Labels.namespace }}
+        #       *Pod:* {{ .Labels.pod }}
+        #       *Descripción:* {{ .Annotations.description }}
+        #       {{ end }}
 
     inhibit_rules:
       # Si hay una alerta crítica sobre un pod, suprime las warnings del mismo pod
