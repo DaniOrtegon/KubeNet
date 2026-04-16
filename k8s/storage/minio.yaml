@@ -102,7 +102,7 @@ spec:
       containers:
         - name: minio
           image: minio/minio:RELEASE.2024-01-16T16-07-38Z
-          imagePullPolicy: Never   # Usa imagen precargada en Minikube; no intenta descargar de internet
+          imagePullPolicy: IfNotPresent   # Usa imagen local si existe, si no la descarga
           command:
             - minio
             - server
@@ -199,7 +199,7 @@ spec:
       containers:
         - name: setup
           image: minio/mc:RELEASE.2024-01-16T16-07-38Z
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
