@@ -7,27 +7,10 @@
 #   - Namespaces: wordpress + databases
 #   - Retención: 30 días (720h)
 #   - Incluye: objetos K8s + snapshots de PVCs (CSI)
-#
-# PRE-REQUISITOS (activados por deploy.sh automáticamente):
-#   minikube addons enable volumesnapshots
-#   minikube addons enable csi-hostpath-driver
-#
-# RESTAURACIÓN COMPLETA:
-#   velero restore create --from-backup wordpress-daily-<FECHA>
-#
-# RESTAURACIÓN EN NAMESPACE SEPARADO (para pruebas):
-#   velero restore create --from-backup wordpress-daily-<FECHA> \
-#     --namespace-mappings wordpress:wordpress-restore
-#
-# VER BACKUPS DISPONIBLES:
-#   velero backup get
-#   velero schedule get
 # ============================================================
 
 # ------------------------------------------------------------
 # Job: Crear bucket velero-backups en MinIO antes de instalar Velero
-# Debe ejecutarse después de que MinIO esté listo (minio-setup Job de 16-minio.yaml)
-# y antes de instalar Velero via Helm (deploy.sh gestiona este orden).
 # ------------------------------------------------------------
 apiVersion: batch/v1
 kind: Job
@@ -39,16 +22,17 @@ metadata:
     app.kubernetes.io/part-of: wordpress-ha
     app.kubernetes.io/component: backup
 spec:
-  ttlSecondsAfterFinished: 300   # Limpieza automática del Job 5 minutos después de completarse
+  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
         app: velero-setup
     spec:
-      restartPolicy: OnFailure   # Reintenta si MinIO no está disponible todavía
+      restartPolicy: OnFailure
       containers:
         - name: mc
-          image: minio/mc:latest
+          # FIXED: Resolved conflict using specific stable release
+          image: minio/mc:RELEASE.2024-01-16T16-07-38Z
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -57,24 +41,23 @@ spec:
               set -e
               echo "=== Creando bucket velero-backups en MinIO ==="
 
-              # Configura el alias del cliente mc con las credenciales de root de MinIO
+              # Configura el alias del cliente mc
               mc alias set local \
                 http://minio.storage.svc.cluster.local:9000 \
                 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
 
-              # Crea el bucket 'velero-backups' si no existe (--ignore-existing es idempotente)
-              # Velero almacena aquí los manifiestos YAML de todos los recursos K8s + metadatos de PVC snapshots
+              # Crea el bucket 'velero-backups'
               mc mb local/velero-backups --ignore-existing
               echo "✅ Bucket velero-backups listo"
 
-              # Verifica que los buckets están creados correctamente
+              # Verifica
               mc ls local/
           env:
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
                   name: minio-secret
-                  key: root-user        # Corregido: el secret en namespace 'storage' usa root-user/root-password
+                  key: root-user
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -91,39 +74,37 @@ spec:
 ---
 # ------------------------------------------------------------
 # NetworkPolicy: Velero puede acceder a MinIO y a la API de K8s
-# Restringe el egress del namespace 'velero' a los destinos estrictamente necesarios.
-# Sin esta política, en un clúster con NetworkPolicies restrictivas,
-# Velero no podría comunicarse con MinIO ni con la API server.
 # ------------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-velero-egress
-  namespace: velero   # Aplica a todos los pods del namespace 'velero' que tengan el label indicado
+  namespace: velero
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: velero   # Selecciona solo los pods de Velero (instalados via Helm)
+      app.kubernetes.io/name: velero
   policyTypes:
-    - Egress   # Solo restringe tráfico saliente; el ingress no está limitado por esta política
+    - Egress
   egress:
-    # Regla 1: permite acceso a MinIO para leer/escribir backups
+    # Regla 1: MinIO
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: storage   # Namespace donde corre MinIO
+              kubernetes.io/metadata.name: storage
       ports:
-        - port: 9000   # Puerto de la API S3 de MinIO
-    # Regla 2: permite acceso a la API de Kubernetes para listar, serializar y restaurar recursos
+        - port: 9000
+    # Regla 2: Kubernetes API
     - to:
         - ipBlock:
-            cidr: 0.0.0.0/0   # La API server puede estar en cualquier IP (especialmente en Minikube)
+            cidr: 0.0.0.0/0
       ports:
-        - port: 6443   # Puerto estándar de la API server de Kubernetes
-        - port: 443    # Puerto alternativo HTTPS (algunos proveedores cloud usan 443)
-    # Regla 3: permite resolución DNS — necesario para resolver 'minio.storage.svc.cluster.local'
+        - port: 6443
+        - port: 443
+    # Regla 3: DNS
     - ports:
         - port: 53
-          protocol: UDP   # DNS sobre UDP (consultas estándar)
+          protocol: UDP
         - port: 53
-          protocol: TCP   # DNS sobre TCP (respuestas grandes que no caben en UDP)
+          protocol: TCP
+

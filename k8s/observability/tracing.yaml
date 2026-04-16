@@ -218,10 +218,8 @@ spec:
           ports:
             - containerPort: 4317
               name: otlp-grpc
-              hostPort: 4317   # Expone el puerto en la IP del nodo — permite enviar a 'localhost:4317' desde otros pods del nodo
             - containerPort: 4318
               name: otlp-http
-              hostPort: 4318   # Expone el puerto HTTP en el nodo para aplicaciones que no usan gRPC
           resources:
             requests:
               cpu: 50m
