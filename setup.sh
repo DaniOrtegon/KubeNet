@@ -144,11 +144,27 @@ if ! kubectl cluster-info &>/dev/null; then
 fi
 
 # ============================================================
-# 4. Inyectar Secret de MinIO
+# 4. Asegurar que los namespaces existen antes de inyectar secrets
+#
+# Los namespaces definitivos (con labels PSS) los aplica
+# k8s/core/namespace.yaml en el paso 03-deploy-core.sh.
+# Aquí los pre-creamos de forma idempotente para poder inyectar
+# los secrets aunque deploy.sh no haya corrido todavía.
+# ============================================================
+log_info "Verificando namespaces necesarios..."
+
+for ns in storage wordpress monitoring; do
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+done
+
+log_success "Namespaces verificados"
+echo ""
+
+# ============================================================
+# 5. Inyectar Secret de MinIO
 #
 # minio-secret en 'storage': usado por el servidor MinIO
 # minio-secret en 'wordpress': usado por WP Offload Media (AS3CF)
-# Los namespaces los crea k8s/core/namespace.yaml en el paso 03.
 # ============================================================
 log_info "Inyectando secret de MinIO..."
 
@@ -169,7 +185,7 @@ kubectl create secret generic minio-secret \
 log_success "minio-secret (wordpress) aplicado"
 
 # ============================================================
-# 5. Inyectar Secret de Grafana
+# 6. Inyectar Secret de Grafana
 #
 # grafana-secret en 'monitoring': usuario y contraseña admin
 # ============================================================
@@ -184,7 +200,7 @@ kubectl create secret generic grafana-secret \
 log_success "grafana-secret (monitoring) aplicado"
 
 # ============================================================
-# 6. Actualizar .gitignore
+# 7. Actualizar .gitignore
 # ============================================================
 GITIGNORE="$SCRIPT_DIR/.gitignore"
 GITIGNORE_ENTRIES=(
@@ -225,5 +241,3 @@ echo ""
 echo -e "${BLUE}  Siguiente paso → despliega el proyecto:${NC}"
 echo -e "  ${GREEN}./deploy.sh${NC}"
 echo ""
-
-
