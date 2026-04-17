@@ -15,7 +15,6 @@ info()  { echo -e "${CYAN}   ℹ️  $*${NC}"; }
 
 # --- CONFIG ---
 DOMAINS=(
-    "wordpress.local"
     "wp-k8s.local"
     "prometheus.monitoring.local"
     "grafana.monitoring.local"
