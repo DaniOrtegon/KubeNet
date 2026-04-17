@@ -186,7 +186,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: cleanup
-              image: minio/mc:RELEASE.2024-01-16T16-07-38Z
+              image: minio/mc:RELEASE.2025-08-13T08-35-41Z
               imagePullPolicy: Never
               command:
                 - sh
