@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================
-#  start-kubenet.sh — Arranque seguro del clúster KubeNet
-#  Ruta: /home/isard/KubeNet/scripts/start-kubenet.sh
-#  Uso:  ./scripts/start-kubenet.sh
+#  start_all.sh — Arranque seguro del clúster KubeNet
+#  Ruta: /home/isard/KubeNet/scripts/start_all.sh
+#  Uso:  ./scripts/start_all.sh
 # =============================================================
 set -uo pipefail
 
@@ -68,14 +68,10 @@ else
 fi
 
 # Esperar a que el nodo esté Ready antes de continuar
-echo ""
 info "Esperando a que el nodo esté Ready..."
 kubectl wait --for=condition=Ready node/minikube --timeout=60s > /dev/null 2>&1 \
     && ok "Nodo Ready" \
     || { fail "El nodo no está Ready tras 60s. Revisa 'kubectl describe node minikube'."; exit 1; }
-
-NEW_IP=$(minikube ip)
-echo "        IP del nodo: $NEW_IP"
 
 # =============================================================
 # [ 2/7 ] ARREGLAR DNS DENTRO DEL NODO
@@ -86,37 +82,52 @@ minikube ssh "echo 'nameserver 8.8.8.8' | sudo tee /etc/resolv.conf" > /dev/null
 ok "DNS forzado → 8.8.8.8"
 
 # =============================================================
-# [ 3/7 ] PRE-CARGAR IMÁGENES CRÍTICAS
+# [ 3/7 ] TUNNEL — PERMISOS Y ARRANQUE
 # =============================================================
 echo ""
-echo "[ 3/7 ] Verificando imágenes críticas en el nodo..."
-for IMAGE in "${CRITICAL_IMAGES[@]}"; do
-    IMAGE_NAME=$(echo "$IMAGE" | cut -d: -f1)
-    EXISTS=$(minikube ssh "docker images -q $IMAGE_NAME 2>/dev/null" | tr -d '[:space:]')
-    if [ -z "$EXISTS" ]; then
-        warn "Imagen no encontrada localmente: $IMAGE"
-        info "Intentando pre-cargar desde el host..."
-        if docker pull "$IMAGE" > /dev/null 2>&1; then
-            minikube image load "$IMAGE" > /dev/null 2>&1 \
-                && ok "Cargada: $IMAGE" \
-                || warn "No se pudo cargar: $IMAGE"
-        else
-            warn "No se pudo hacer pull de $IMAGE — se intentará desde el nodo"
-        fi
-    else
-        ok "Disponible: $IMAGE"
+echo "[ 3/7 ] Arrancando minikube tunnel..."
+
+# Arreglar permisos
+sudo chown -R $USER $HOME/.minikube
+chmod -R u+wrx $HOME/.minikube
+
+# Limpiar lockfiles de tunnels anteriores
+sudo rm -f $HOME/.minikube/tunnels.json
+sudo rm -f $HOME/.minikube/profiles/minikube/.tunnel_lock
+
+# Matar tunnel previo si existe
+sudo pkill -f "minikube tunnel" 2>/dev/null || true
+sleep 2
+
+# Lanzar tunnel en background
+nohup minikube tunnel > /tmp/minikube-tunnel.log 2>&1 &
+info "Esperando IP del tunnel..."
+
+# Esperar hasta que EXTERNAL-IP deje de ser <pending>
+TUNNEL_IP=""
+ATTEMPTS=0
+until [ -n "$TUNNEL_IP" ] && [ "$TUNNEL_IP" != "pending" ]; do
+    sleep 3
+    TUNNEL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    ATTEMPTS=$((ATTEMPTS + 1))
+    if [ $ATTEMPTS -ge 20 ]; then
+        warn "Timeout esperando IP del tunnel. Usando minikube ip como fallback."
+        TUNNEL_IP=$(minikube ip)
+        break
     fi
 done
+ok "IP del tunnel: $TUNNEL_IP"
 
 # =============================================================
-# [ 4/7 ] ACTUALIZAR /ETC/HOSTS
+# [ 4/7 ] ACTUALIZAR /ETC/HOSTS CON IP DEL TUNNEL
 # =============================================================
 echo ""
 echo "[ 4/7 ] Actualizando /etc/hosts..."
 for DOMAIN in "${DOMAINS[@]}"; do
     sudo sed -i "/$DOMAIN/d" /etc/hosts
-    echo "$NEW_IP $DOMAIN" | sudo tee -a /etc/hosts > /dev/null
-    ok "$DOMAIN → $NEW_IP"
+    echo "$TUNNEL_IP $DOMAIN" | sudo tee -a /etc/hosts > /dev/null
+    ok "$DOMAIN → $TUNNEL_IP"
 done
 
 # =============================================================
@@ -170,7 +181,7 @@ if [ -n "$CRASH_ERRORS" ]; then
     done <<< "$CRASH_ERRORS"
 fi
 
-# Rollouts atascados (ReplicaSets con pods deseados pero 0 listos)
+# Rollouts atascados
 info "Comprobando rollouts atascados..."
 for NS in "${CRITICAL_NAMESPACES[@]}"; do
     STUCK=$(kubectl get replicasets -n "$NS" --no-headers 2>/dev/null \
@@ -182,7 +193,7 @@ for NS in "${CRITICAL_NAMESPACES[@]}"; do
     fi
 done
 
-# Jobs/pods fallidos (Error status — como velero-bucket-setup)
+# Jobs fallidos
 FAILED_JOBS=$(kubectl get pods -A --no-headers 2>/dev/null \
     | awk '$4 == "Error" {print $1" "$2}')
 if [ -n "$FAILED_JOBS" ]; then
@@ -222,16 +233,6 @@ echo "--- Namespaces críticos ---"
 kubectl get pods -A --no-headers 2>/dev/null \
     | grep -E "$(IFS='|'; echo "${CRITICAL_NAMESPACES[*]}")" \
     | awk '{printf "  %-20s %-45s %-15s\n", $1, $2, $4}'
-
-echo ""
-info "Comprobando Ingress..."
-INGRESS_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
-    -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-if [ -z "$INGRESS_IP" ]; then
-    warn "Ingress sin IP externa asignada aún — las URLs pueden tardar unos segundos"
-else
-    ok "Ingress listo en $INGRESS_IP"
-fi
 
 echo ""
 echo "=================================================="
