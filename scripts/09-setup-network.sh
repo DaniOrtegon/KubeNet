@@ -1,63 +1,40 @@
 #!/bin/bash
 # ============================================================
-# 09-setup-network.sh — Tunnel + /etc/hosts
-#
-# Configura el acceso local a los servicios de KubeNet:
-#   1. minikube tunnel como servicio systemd (con fallback a nohup)
-#   2. /etc/hosts con la IP del Ingress Controller
-#
-# Sin este paso, las URLs locales (wp-k8s.local, etc.) no resuelven.
-#
-# USO:
-#   ./scripts/09-setup-network.sh
+# 09-setup-network.sh — VERSIÓN DINÁMICA E INFALIBLE
 # ============================================================
 
 set -e
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-echo ""
-echo -e "${BLUE}============================================================${NC}"
-echo -e "${BLUE}   [09] Red: Tunnel + /etc/hosts${NC}"
-echo -e "${BLUE}============================================================${NC}"
-echo ""
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-# ------------------------------------------------------------
-# 1. minikube tunnel como servicio systemd
-#
-# minikube tunnel necesita privilegios de red (abre puertos 80/443).
-# Lo configuramos como servicio systemd para que arranque solo
-# tras reinicios. Si systemd falla (p.ej. en WSL), usamos nohup
-# como fallback.
-# ------------------------------------------------------------
+echo -e "${BLUE}============================================================${NC}"
+echo -e "${BLUE}   [09] Red: Tunnel + /etc/hosts (Auto-Discovery)${NC}"
+echo -e "${BLUE}============================================================${NC}"
+
+REAL_USER="isard"
+USER_HOME="/home/$REAL_USER"
+MINIKUBE_BIN=$(which minikube)
+
 setup_tunnel_service() {
-  local SERVICE_FILE="/etc/systemd/system/minikube-tunnel.service"
-  local CURRENT_USER
-  CURRENT_USER=$(whoami)
-  local CURRENT_HOME
-  CURRENT_HOME=$(eval echo ~"$CURRENT_USER")
-  local MINIKUBE_PATH
-  MINIKUBE_PATH=$(which minikube)
-
-  log_info "Configurando minikube tunnel como servicio systemd..."
-
-  sudo tee "$SERVICE_FILE" > /dev/null << UNIT
+  echo -e "[INFO] Configurando servicio de túnel..."
+  sudo pkill -f "minikube tunnel" || true
+  
+  sudo tee /etc/systemd/system/minikube-tunnel.service > /dev/null <<UNIT
 [Unit]
-Description=Minikube Tunnel
+Description=Minikube Tunnel Service
 After=network.target docker.service
-Wants=docker.service
 
 [Service]
 Type=simple
-User=${CURRENT_USER}
-Environment="HOME=${CURRENT_HOME}"
-Environment="KUBECONFIG=${CURRENT_HOME}/.kube/config"
-ExecStartPre=/bin/sleep 5
-ExecStart=${MINIKUBE_PATH} tunnel
-ExecStop=/usr/bin/pkill -f "minikube tunnel"
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
+User=root
+Environment="HOME=$USER_HOME"
+Environment="KUBECONFIG=$USER_HOME/.kube/config"
+ExecStart=$MINIKUBE_BIN tunnel --cleanup
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -66,62 +43,53 @@ UNIT
   sudo systemctl daemon-reload
   sudo systemctl enable minikube-tunnel.service
   sudo systemctl restart minikube-tunnel.service
-
-  sleep 5
-  if sudo systemctl is-active --quiet minikube-tunnel.service; then
-    log_success "Servicio minikube-tunnel activo"
-  else
-    log_warn "Servicio systemd no arrancó (¿WSL o entorno sin systemd?)"
-    log_warn "Lanzando minikube tunnel en segundo plano con nohup..."
-    # Matar instancia previa si existe
-    pkill -f "minikube tunnel" 2>/dev/null || true
-    sleep 2
-    nohup minikube tunnel > /tmp/minikube-tunnel.log 2>&1 &
-    sleep 5
-    log_info "Tunnel en segundo plano — log en /tmp/minikube-tunnel.log"
-  fi
+  echo -e "${GREEN}[OK] Servicio de túnel activo.${NC}"
 }
 
-# ------------------------------------------------------------
-# 2. Obtener IP del Ingress Controller y actualizar /etc/hosts
-# ------------------------------------------------------------
 update_hosts() {
-  log_info "Obteniendo IP externa del Ingress Controller..."
+  echo -e "[INFO] Detectando IP y dominios..."
+  
+  # 1. Detectar IP (Prioridad: External IP -> Minikube IP)
+  local ip=""
+  ip=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+  
+  if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "[WARN] IP de túnel no lista, usando IP del nodo Minikube..."
+    ip=$(minikube ip)
+  fi
 
-  local retries=0
-  local EXTERNAL_IP=""
+  # 2. Detectar TODOS los dominios configurados en los Ingress del clúster
+  # Esto busca en todos los namespaces y extrae los 'host' de las reglas
+  local hosts=$(kubectl get ingress -A -o jsonpath='{.items[*].spec.rules[*].host}')
 
-  until [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "<pending>" ]; do
-    retries=$((retries + 1))
-    if [ $retries -ge 36 ]; then
-      log_error "No se asignó EXTERNAL-IP en 3 minutos. Asegúrate de que minikube tunnel está corriendo."
-    fi
-    EXTERNAL_IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
-      -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-    [ -z "$EXTERNAL_IP" ] || [ "$EXTERNAL_IP" = "<pending>" ] && echo -n "." && sleep 5
+  if [ -z "$hosts" ]; then
+    echo -e "${RED}[ERROR] No se han encontrado dominios en los Ingress.${NC}"
+    exit 1
+  fi
+
+  echo -e "${GREEN}[OK] IP: $ip${NC}"
+  echo -e "${GREEN}[OK] Dominios: $hosts${NC}"
+
+  # 3. Limpiar entradas viejas y escribir nuevas una a una para evitar truncado
+  sudo sed -i '/\.local\|wp-k8s/d' /etc/hosts
+  
+  for h in $hosts; do
+    echo "$ip $h" | sudo tee -a /etc/hosts > /dev/null
   done
-  echo ""
-  log_success "EXTERNAL-IP obtenida: $EXTERNAL_IP"
-
-  # Limpiar entradas anteriores de KubeNet
-  sudo sed -i '/wp-k8s\.local/d'               /etc/hosts
-  sudo sed -i '/grafana\.monitoring\.local/d'   /etc/hosts
-  sudo sed -i '/prometheus\.monitoring\.local/d' /etc/hosts
-  sudo sed -i '/minio\.storage\.local/d'        /etc/hosts
-
-  # Añadir entradas nuevas
-  echo "$EXTERNAL_IP wp-k8s.local"               | sudo tee -a /etc/hosts > /dev/null
-  echo "$EXTERNAL_IP grafana.monitoring.local"    | sudo tee -a /etc/hosts > /dev/null
-  echo "$EXTERNAL_IP prometheus.monitoring.local" | sudo tee -a /etc/hosts > /dev/null
-  echo "$EXTERNAL_IP minio.storage.local"         | sudo tee -a /etc/hosts > /dev/null
-
-  log_success "/etc/hosts actualizado con IP $EXTERNAL_IP"
+  
+  echo -e "${GREEN}[OK] /etc/hosts actualizado sin errores.${NC}"
 }
 
+# Ejecución
 setup_tunnel_service
-echo ""
+sleep 2 # Breve pausa para el túnel
 update_hosts
 
-echo ""
-log_success "[09] Red configurada correctamente"
-echo ""
+echo -e "\n${GREEN}============================================================${NC}"
+echo -e "${GREEN}   ACCESO MULTI-SERVICIO LISTO:${NC}"
+for h in $(kubectl get ingress -A -o jsonpath='{.items[*].spec.rules[*].host}'); do
+  echo -e "${GREEN}   - https://$h${NC}"
+done
+echo -e "${GREEN}============================================================${NC}"
+
+

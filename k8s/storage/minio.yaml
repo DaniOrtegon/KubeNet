@@ -1,5 +1,5 @@
 # ============================================================
-# minio.yaml — Final Working Version
+# minio.yaml — Versión Final Funcional (Servidor + Setup + Ingress)
 # ============================================================
 
 apiVersion: v1
@@ -38,6 +38,7 @@ spec:
     spec:
       containers:
         - name: minio
+          # IMAGEN DE SERVIDOR: Contiene el binario 'minio'
           image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z
           imagePullPolicy: IfNotPresent
           command: ["minio", "server", "/data", "--console-address", ":9001"]
@@ -73,8 +74,10 @@ spec:
   ports:
     - name: api
       port: 9000
+      targetPort: 9000
     - name: console
       port: 9001
+      targetPort: 9001
   selector:
     app: minio
 
@@ -90,17 +93,16 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: setup
-          # USE THE SAME IMAGE AS THE SERVER TO AVOID PULL ERRORS
-          image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z
+          # IMAGEN DE CLIENTE: Contiene el binario 'mc'
+          image: minio/mc:RELEASE.2025-08-13T08-35-41Z
           imagePullPolicy: IfNotPresent
           command:
             - sh
             - -c
             - |
               echo "Esperando a MinIO..."
-              # In the server image, 'mc' is available as a command
               until mc alias set local http://minio.storage.svc.cluster.local:9000 \
-                    "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" &>/dev/null; do
+                "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" &>/dev/null; do
                 sleep 3
               done
               mc mb --ignore-existing local/wordpress-uploads
@@ -118,3 +120,33 @@ spec:
                 secretKeyRef:
                   name: minio-secret
                   key: root-password
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: storage
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+    cert-manager.io/cluster-issuer: "ca-issuer"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - minio.storage.local
+      secretName: minio-tls
+  rules:
+    - host: minio.storage.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9001
+
+
