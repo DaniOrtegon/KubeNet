@@ -64,7 +64,7 @@ if [ "$STATUS" != "Running" ]; then
     ok "Minikube arrancado"
 else
     ok "Minikube ya estaba corriendo"
-i
+fi
 
 # Esperar a que el nodo esté Ready antes de continuar
 info "Esperando a que el nodo esté Ready..."
