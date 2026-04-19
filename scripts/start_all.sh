@@ -64,7 +64,7 @@ if [ "$STATUS" != "Running" ]; then
     ok "Minikube arrancado"
 else
     ok "Minikube ya estaba corriendo"
-fi
+i
 
 # Esperar a que el nodo esté Ready antes de continuar
 info "Esperando a que el nodo esté Ready..."
@@ -225,6 +225,21 @@ if [ -n "$UNHEALTHY" ]; then
     echo "$UNHEALTHY"
 else
     ok "Todos los pods están Running o Completed"
+fi
+
+# --- SINCRONIZAR PASSWORD DE GRAFANA ---
+echo ""
+info "Sincronizando credenciales de Grafana..."
+GRAFANA_PASS=$(kubectl get secret -n monitoring grafana-secret \
+    -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d)
+
+if [ -n "$GRAFANA_PASS" ]; then
+    kubectl exec -n monitoring deployment/grafana -- \
+        grafana-cli admin reset-admin-password "$GRAFANA_PASS" > /dev/null 2>&1 \
+        && ok "Grafana password sincronizada con el secret" \
+        || warn "No se pudo sincronizar Grafana — puede que aún esté arrancando"
+else
+    warn "No se encontró grafana-secret — ejecuta setup.sh primero"
 fi
 
 echo ""
