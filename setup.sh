@@ -47,91 +47,103 @@ ENV_FILE="$SCRIPT_DIR/.env"
 # 1. Generar .env interactivamente si no existe
 # ============================================================
 if [ ! -f "$ENV_FILE" ]; then
-  log_info "No se encontró .env — iniciando configuración interactiva..."
-  echo ""
-
-  read_value() {
-    local var_name="$1"
-    local prompt="$2"
-    local value=""
-    while [ -z "$value" ]; do
-      read -rp "  $prompt: " value
-      [ -z "$value" ] && echo -e "  ${RED}No puede estar vacío.${NC}"
-    done
-    echo "$var_name=$value" >> "$ENV_FILE"
-    export "$var_name=$value"
-  }
-
-  read_password() {
-    local var_name="$1"
-    local prompt="$2"
-    local value=""
-    while [ -z "$value" ]; do
-      read -rsp "  $prompt: " value
-      echo ""
-      [ -z "$value" ] && echo -e "  ${RED}No puede estar vacío.${NC}"
-    done
-    echo "$var_name=$value" >> "$ENV_FILE"
-    export "$var_name=$value"
-  }
-
-  {
-    echo "# .env — Contraseñas de KubeNet"
-    echo "# Generado por setup.sh — NO subir al repositorio"
-    echo "# Para regenerar: rm .env && ./setup.sh"
+    log_info "No se encontró .env — iniciando configuración interactiva..."
     echo ""
-  } > "$ENV_FILE"
 
-  echo -e "${YELLOW}  MariaDB${NC}"
-  read_password "MARIADB_ROOT_PASSWORD"  "Contraseña root de MariaDB"
-  read_password "MARIADB_USER_PASSWORD"  "Contraseña del usuario wordpress de MariaDB"
-  echo ""
+    read_value() {
+        local var_name="$1"
+        local prompt="$2"
+        local min_length="${3:-3}"
+        local value=""
+        while [ -z "$value" ] || [ ${#value} -lt $min_length ]; do
+            read -rp "  $prompt: " value
+            [ -z "$value" ] && echo -e "  ${RED}No puede estar vacío.${NC}" && continue
+            [ ${#value} -lt $min_length ] && echo -e "  ${RED}Mínimo $min_length caracteres.${NC}"
+        done
+        echo "$var_name=$value" >> "$ENV_FILE"
+        export "$var_name=$value"
+    }
 
-  echo -e "${YELLOW}  Redis${NC}"
-  read_password "REDIS_PASSWORD"         "Contraseña de Redis"
-  echo ""
+    read_password() {
+        local var_name="$1"
+        local prompt="$2"
+        local min_length="${3:-8}"
+        local value=""
+        while [ -z "$value" ] || [ ${#value} -lt $min_length ]; do
+            read -rsp "  $prompt: " value
+            echo ""
+            [ -z "$value" ] && echo -e "  ${RED}No puede estar vacío.${NC}" && continue
+            [ ${#value} -lt $min_length ] && echo -e "  ${RED}Mínimo $min_length caracteres.${NC}"
+        done
+        echo "$var_name=$value" >> "$ENV_FILE"
+        export "$var_name=$value"
+    }
 
-  echo -e "${YELLOW}  MinIO${NC}"
-  read_value    "MINIO_ROOT_USER"        "Usuario root de MinIO (ej: minioadmin)"
-  read_password "MINIO_ROOT_PASSWORD"    "Contraseña root de MinIO"
-  echo ""
+    {
+        echo "# .env — Contraseñas de KubeNet"
+        echo "# Generado por setup.sh — NO subir al repositorio"
+        echo "# Para regenerar: rm .env && ./setup.sh"
+        echo ""
+    } > "$ENV_FILE"
 
-  echo -e "${YELLOW}  Grafana${NC}"
-  read_value    "GRAFANA_ADMIN_USER"     "Usuario admin de Grafana (ej: admin)"
-  read_password "GRAFANA_ADMIN_PASSWORD" "Contraseña admin de Grafana"
-  echo ""
+    echo -e "${YELLOW}  MariaDB${NC}"
+    read_password "MARIADB_ROOT_PASSWORD"  "Contraseña root de MariaDB"
+    read_password "MARIADB_USER_PASSWORD"  "Contraseña del usuario wordpress de MariaDB"
+    echo ""
 
-  log_success ".env generado correctamente"
-  echo ""
+    echo -e "${YELLOW}  Redis${NC}"
+    read_password "REDIS_PASSWORD"         "Contraseña de Redis"
+    echo ""
+
+    echo -e "${YELLOW}  MinIO${NC}"
+    read_value    "MINIO_ROOT_USER"        "Usuario root de MinIO (ej: minioadmin)" 3
+    read_password "MINIO_ROOT_PASSWORD"    "Contraseña root de MinIO" 8
+    echo ""
+
+    echo -e "${YELLOW}  Grafana${NC}"
+    read_value    "GRAFANA_ADMIN_USER"     "Usuario admin de Grafana (ej: admin)"
+    read_password "GRAFANA_ADMIN_PASSWORD" "Contraseña admin de Grafana"
+    echo ""
+
+    log_success ".env generado correctamente"
+    echo ""
 else
-  log_info "Cargando contraseñas desde .env existente..."
+    log_info "Cargando contraseñas desde .env existente..."
 fi
 
 # ============================================================
 # 2. Cargar .env
 # ============================================================
 while IFS='=' read -r key value; do
-  [[ "$key" =~ ^[[:space:]]*#.*$ || -z "$key" ]] && continue
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  export "$key=$value"
+    [[ "$key" =~ ^[[:space:]]*#.*$ || -z "$key" ]] && continue
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    export "$key=$value"
 done < "$ENV_FILE"
 
 REQUIRED_VARS=(
-  MARIADB_ROOT_PASSWORD
-  MARIADB_USER_PASSWORD
-  REDIS_PASSWORD
-  MINIO_ROOT_USER
-  MINIO_ROOT_PASSWORD
-  GRAFANA_ADMIN_USER
-  GRAFANA_ADMIN_PASSWORD
+    MARIADB_ROOT_PASSWORD
+    MARIADB_USER_PASSWORD
+    REDIS_PASSWORD
+    MINIO_ROOT_USER
+    MINIO_ROOT_PASSWORD
+    GRAFANA_ADMIN_USER
+    GRAFANA_ADMIN_PASSWORD
 )
 
 for var in "${REQUIRED_VARS[@]}"; do
-  if [ -z "${!var}" ]; then
-    log_error "La variable $var está vacía en .env. Borra el archivo y vuelve a ejecutar setup.sh."
-  fi
+    if [ -z "${!var}" ]; then
+        log_error "La variable $var está vacía en .env. Borra el archivo y vuelve a ejecutar setup.sh."
+    fi
 done
+
+# Validación de longitud mínima para MinIO
+if [ ${#MINIO_ROOT_PASSWORD} -lt 8 ]; then
+    log_error "MINIO_ROOT_PASSWORD debe tener al menos 8 caracteres. Borra .env y vuelve a ejecutar setup.sh."
+fi
+if [ ${#MINIO_ROOT_USER} -lt 3 ]; then
+    log_error "MINIO_ROOT_USER debe tener al menos 3 caracteres. Borra .env y vuelve a ejecutar setup.sh."
+fi
 
 log_success "Contraseñas cargadas correctamente"
 echo ""
@@ -140,63 +152,51 @@ echo ""
 # 3. Verificar que el clúster está disponible
 # ============================================================
 if ! kubectl cluster-info &>/dev/null; then
-  log_error "No se puede conectar al clúster. Arranca Minikube primero: minikube start"
+    log_error "No se puede conectar al clúster. Arranca Minikube primero: minikube start"
 fi
 
 # ============================================================
-# 4. Asegurar que los namespaces existen antes de inyectar secrets
-#
-# Los namespaces definitivos (con labels PSS) los aplica
-# k8s/core/namespace.yaml en el paso 03-deploy-core.sh.
-# Aquí los pre-creamos de forma idempotente para poder inyectar
-# los secrets aunque deploy.sh no haya corrido todavía.
+# 4. Asegurar que los namespaces existen
 # ============================================================
 log_info "Verificando namespaces necesarios..."
-
 for ns in storage wordpress monitoring; do
-  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
 done
-
 log_success "Namespaces verificados"
 echo ""
 
 # ============================================================
 # 5. Inyectar Secret de MinIO
-#
-# minio-secret en 'storage': usado por el servidor MinIO
-# minio-secret en 'wordpress': usado por WP Offload Media (AS3CF)
 # ============================================================
 log_info "Inyectando secret de MinIO..."
 
 kubectl create secret generic minio-secret \
-  --namespace storage \
-  --from-literal=root-user="${MINIO_ROOT_USER}" \
-  --from-literal=root-password="${MINIO_ROOT_PASSWORD}" \
-  --dry-run=client -o yaml | kubectl apply -f - \
-  || log_error "Error aplicando minio-secret en namespace 'storage'"
+    --namespace storage \
+    --from-literal=root-user="${MINIO_ROOT_USER}" \
+    --from-literal=root-password="${MINIO_ROOT_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    || log_error "Error aplicando minio-secret en namespace 'storage'"
 log_success "minio-secret (storage) aplicado"
 
 kubectl create secret generic minio-secret \
-  --namespace wordpress \
-  --from-literal=access-key="${MINIO_ROOT_USER}" \
-  --from-literal=secret-key="${MINIO_ROOT_PASSWORD}" \
-  --dry-run=client -o yaml | kubectl apply -f - \
-  || log_error "Error aplicando minio-secret en namespace 'wordpress'"
+    --namespace wordpress \
+    --from-literal=access-key="${MINIO_ROOT_USER}" \
+    --from-literal=secret-key="${MINIO_ROOT_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    || log_error "Error aplicando minio-secret en namespace 'wordpress'"
 log_success "minio-secret (wordpress) aplicado"
 
 # ============================================================
 # 6. Inyectar Secret de Grafana
-#
-# grafana-secret en 'monitoring': usuario y contraseña admin
 # ============================================================
 log_info "Inyectando secret de Grafana..."
 
 kubectl create secret generic grafana-secret \
-  --namespace monitoring \
-  --from-literal=admin-user="${GRAFANA_ADMIN_USER}" \
-  --from-literal=admin-password="${GRAFANA_ADMIN_PASSWORD}" \
-  --dry-run=client -o yaml | kubectl apply -f - \
-  || log_error "Error aplicando grafana-secret en namespace 'monitoring'"
+    --namespace monitoring \
+    --from-literal=admin-user="${GRAFANA_ADMIN_USER}" \
+    --from-literal=admin-password="${GRAFANA_ADMIN_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    || log_error "Error aplicando grafana-secret en namespace 'monitoring'"
 log_success "grafana-secret (monitoring) aplicado"
 
 # ============================================================
@@ -204,21 +204,20 @@ log_success "grafana-secret (monitoring) aplicado"
 # ============================================================
 GITIGNORE="$SCRIPT_DIR/.gitignore"
 GITIGNORE_ENTRIES=(
-  ".env"
-  "*.bak"
-  "secrets/"
-  "sealed-secrets-master-key-backup.yaml"
-  "sealed-secrets-backup-*/"
+    ".env"
+    "*.bak"
+    "secrets/"
+    "sealed-secrets-master-key-backup.yaml"
+    "sealed-secrets-backup-*/"
 )
 
 ADDED=false
 for entry in "${GITIGNORE_ENTRIES[@]}"; do
-  if ! grep -qF "$entry" "$GITIGNORE" 2>/dev/null; then
-    echo "$entry" >> "$GITIGNORE"
-    ADDED=true
-  fi
+    if ! grep -qF "$entry" "$GITIGNORE" 2>/dev/null; then
+        echo "$entry" >> "$GITIGNORE"
+        ADDED=true
+    fi
 done
-
 $ADDED && log_success ".gitignore actualizado" || log_success ".gitignore ya está al día"
 
 # ============================================================
