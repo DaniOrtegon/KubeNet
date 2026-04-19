@@ -21,7 +21,7 @@ metadata:
     app.kubernetes.io/component: backup
 spec:
   schedule: "0 2 * * *"          # Diario a las 2:00 AM
-  concurrencyPolicy: Forbid       # No lanza un nuevo job si el anterior sigue corriendo
+  concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 3
   successfulJobsHistoryLimit: 3
   jobTemplate:
@@ -34,8 +34,8 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: backup
-              image: mariadb:10.6
-              imagePullPolicy: Never
+              image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+              imagePullPolicy: IfNotPresent
               command:
                 - sh
                 - -c
@@ -44,9 +44,11 @@ spec:
                   DATE=$(date +%Y%m%d_%H%M%S)
                   BACKUP_FILE="/tmp/wordpress_db_${DATE}.sql.gz"
 
+                  echo "=== Instalando cliente MariaDB ==="
+                  apk add --no-cache mariadb-client > /dev/null 2>&1
+
                   echo "=== Iniciando backup MariaDB: ${DATE} ==="
 
-                  # Dump de la base de datos wordpress_db
                   mysqldump \
                     -h mariadb.databases.svc.cluster.local \
                     -u root \
@@ -58,14 +60,12 @@ spec:
 
                   echo "Dump completado: ${BACKUP_FILE}"
 
-                  # Subir a MinIO usando mc
                   mc alias set minio http://minio.storage.svc.cluster.local:9000 \
                     "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
 
                   mc cp "${BACKUP_FILE}" "minio/wordpress-backups/mariadb/${DATE}.sql.gz"
                   echo "=== Backup subido a MinIO: mariadb/${DATE}.sql.gz ==="
 
-                  # Listar últimos 5 backups
                   mc ls minio/wordpress-backups/mariadb/ | tail -5
               env:
                 - name: MYSQL_ROOT_PASSWORD
@@ -130,7 +130,6 @@ spec:
                   mc alias set minio http://minio.storage.svc.cluster.local:9000 \
                     "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
 
-                  # Sync de uploads de MinIO (wordpress-uploads → wordpress-backups/uploads/)
                   mc mirror \
                     --overwrite \
                     minio/wordpress-uploads \
@@ -187,7 +186,7 @@ spec:
           containers:
             - name: cleanup
               image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-              imagePullPolicy: Never
+              imagePullPolicy: IfNotPresent
               command:
                 - sh
                 - -c
@@ -198,12 +197,10 @@ spec:
                   mc alias set minio http://minio.storage.svc.cluster.local:9000 \
                     "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
 
-                  # Eliminar dumps de MariaDB con más de 30 días
                   mc rm --recursive --force \
                     --older-than 720h \
                     minio/wordpress-backups/mariadb/ 2>/dev/null || true
 
-                  # Eliminar backups de uploads con más de 30 días
                   mc rm --recursive --force \
                     --older-than 720h \
                     minio/wordpress-backups/uploads/ 2>/dev/null || true
