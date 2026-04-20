@@ -21,7 +21,7 @@
 13. [Estructura del proyecto](#-estructura-del-proyecto)
 14. [Decisiones de diseño](#-decisiones-de-diseño)
 15. [Limitaciones conocidas](#-limitaciones-conocidas)
-16. [Próximas mejoras](#-próximas-mejoras)
+16. [Posibles mejoras para Producción Real](#-Posibles-mejoras-para-Producción-Real)
 17. [Valor del proyecto](#-valor-del-proyecto)
 18. [Comandos útiles](#-comandos-útiles)
 
@@ -338,7 +338,7 @@ kubectl get certificates -A
 
 ---
 
-## 📌 Próximas mejoras
+## 📌 Posibles mejoras para Producción Real
 
 - [ ] Estandarización con Helm/Kustomize: Sustituir los manifiestos YAML estáticos por plantillas dinámicas que permitan gestionar diferentes entornos (Dev, Staging, Prod) sin duplicar código.
 - [ ] External Secrets Operator (ESO): En lugar de gestionar secretos localmente, integrarlos con un servicio de bóveda real como HashiCorp Vault, AWS Secrets Manager o Azure Key Vault.
