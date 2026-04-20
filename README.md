@@ -2,11 +2,6 @@
 
 > Infraestructura cloud-native completa sobre Minikube: alta disponibilidad, escalado por tráfico real, observabilidad end-to-end y seguridad en profundidad. Entorno de producción simulado, no una demo básica.
 
-[![CI](https://img.shields.io/badge/CI-kubeconform%20%7C%20kube--score-brightgreen?logo=githubactions&logoColor=white)](https://github.com/features/actions)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-Minikube-326CE5?logo=kubernetes&logoColor=white)](https://minikube.sigs.k8s.io/)
-[![KEDA](https://img.shields.io/badge/Autoscaling-KEDA-FF6B35)](https://keda.sh/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
 ---
 
 ## 📑 Índice
@@ -398,8 +393,4 @@ kubectl exec -n databases mariadb-1 -- \
 ./deploy.sh --cleanup
 ```
 
----
 
-## 📄 Licencia
-
-MIT
