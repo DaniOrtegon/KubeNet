@@ -1,0 +1,91 @@
+name: KubeNet CI — Validación de manifiestos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'k8s/**'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validar manifests (kubectl + kubeconform)
+    runs-on: ubuntu-latest
+
+    steps:
+      # --------------------------------------------------------
+      # 1. Checkout
+      # --------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # 2. Instalar kubectl
+      # --------------------------------------------------------
+      - name: Instalar kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      # --------------------------------------------------------
+      # 3. Crear cluster Kind
+      # --------------------------------------------------------
+      - name: Crear cluster Kind
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: kubenet-ci
+
+      # --------------------------------------------------------
+      # 4. Crear namespaces necesarios
+      # --------------------------------------------------------
+      - name: Crear namespaces
+        run: |
+          set -e
+          for ns in cert-manager databases ingress-nginx keda monitoring storage velero wordpress; do
+            kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+          done
+
+      # --------------------------------------------------------
+      # 5. Validación con kubectl (solo core resources)
+      # --------------------------------------------------------
+      - name: Validar core (kubectl)
+        run: |
+          set -e
+          kubectl apply -f k8s/core/ --dry-run=server
+          kubectl apply -f k8s/app/ --dry-run=server
+
+      # --------------------------------------------------------
+      # 6. Instalar kubeconform
+      # --------------------------------------------------------
+      - name: Instalar kubeconform
+        run: |
+          set -e
+          curl -L https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      # --------------------------------------------------------
+      # 7. Validar TODOS los manifests (incluyendo CRDs)
+      # --------------------------------------------------------
+      - name: Validar manifests con kubeconform
+        run: |
+          set -e
+          kubeconform \
+            -strict \
+            -summary \
+            -ignore-missing-schemas \
+            -recursive k8s/
+
+      # --------------------------------------------------------
+      # 8. Resumen final
+      # --------------------------------------------------------
+      - name: Resumen
+        if: success()
+        run: |
+          echo "✅ Validación completada correctamente"
+          echo "kubectl (core) + kubeconform (CRDs)"
