@@ -59,16 +59,15 @@ jobs:
       - name: Validar manifests con kubeconform
         run: |
           set -e
-          kubeconform \
-            -strict \
-            -summary \
-            -ignore-missing-schemas \
-            -recursive \
-            k8s/
+          find k8s -type f \( -name '*.yaml' -o -name '*.yml' \) -print0 \
+            | xargs -0 kubeconform \
+                -strict \
+                -summary \
+                -ignore-missing-schemas
 
       - name: Resumen
         if: success()
         run: |
           echo "✅ Validación completada correctamente"
           echo " - kubectl: recursos core/nativos"
-          echo " - kubeconform: validación recursiva del árbol k8s/"
+          echo " - kubeconform: validación completa de manifests YAML"
