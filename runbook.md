@@ -119,23 +119,23 @@ START SLAVE;
 
 ---
 
-## 6. Grafana — Login inválido (Desfase de DB)
+## 6. Login inválido (Desfase de DB)
 
-**Síntoma:** El login de admin falla aunque el Secret sea correcto en Kubernetes.
+**Síntoma:** El login de cualquier recurso falla aunque el Secret sea correcto en Kubernetes.
 
 **Causa:** La base de datos interna de Grafana no se actualiza automáticamente si se cambia el Secret tras el primer despliegue.
 
-**Solución:**
+**Solución:** Ejecutar el script de arranque general:
 
-1. Limpiar bloqueo:
-   ```bash
-   kubectl delete pod -n monitoring -l app=grafana
-   ```
-2. Resetear vía CLI:
-   ```bash
-   kubectl exec -n monitoring -it deployment/grafana -- \
-     grafana cli admin reset-admin-password "TuNuevaPassword123"
-   ```
+```bash
+./start_all.sh
+```
+
+> Si el problema persiste, como solución alternativa puedes resetear la contraseña directamente vía CLI:
+> ```bash
+> kubectl exec -n monitoring -it deployment/grafana -- \
+>   grafana cli admin reset-admin-password "TuNuevaPassword123"
+> ```
 
 ---
 
