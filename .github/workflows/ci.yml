@@ -5,12 +5,14 @@ env:
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - 'k8s/**'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [main]
+    branches:
+      - main
     paths:
       - 'k8s/**'
       - '.github/workflows/ci.yml'
@@ -28,7 +30,7 @@ jobs:
       - name: Instalar kubectl
         uses: azure/setup-kubectl@v3
         with:
-          version: 'v1.28.0'
+          version: v1.28.0
 
       - name: Crear cluster Kind
         uses: helm/kind-action@v1.8.0
@@ -42,7 +44,7 @@ jobs:
             kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
           done
 
-      - name: Validar core (kubectl)
+      - name: Validar manifests core con kubectl
         run: |
           set -e
           kubectl apply -f k8s/core/ --dry-run=server
@@ -51,12 +53,11 @@ jobs:
         run: |
           set -e
           KUBECONFORM_VERSION="v0.6.7"
-          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
-            | tar -xz
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz
           sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
           kubeconform -v
 
-      - name: Validar manifests con kubeconform
+      - name: Validar todos los YAML con kubeconform
         run: |
           set -e
           find k8s -type f \( -name '*.yaml' -o -name '*.yml' \) -print0 \
@@ -65,9 +66,10 @@ jobs:
                 -summary \
                 -ignore-missing-schemas
 
-      - name: Resumen
+      - name: Resumen final
         if: success()
         run: |
           echo "✅ Validación completada correctamente"
           echo " - kubectl: recursos core/nativos"
-          echo " - kubeconform: validación completa de manifests YAML"
+          echo " - kubeconform: validación completa de YAMLs"
+
