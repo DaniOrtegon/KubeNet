@@ -58,7 +58,6 @@ spec:
                     wordpress_db | gzip > "${BACKUP_FILE}"
 
                   echo "=== Dump completado: ${BACKUP_FILE} ==="
-                  # Guardar el nombre del archivo para el contenedor principal
                   echo "${BACKUP_FILE}" > /backup/latest.txt
               env:
                 - name: MYSQL_ROOT_PASSWORD
@@ -79,16 +78,15 @@ spec:
                 - |
                   set -e
                   BACKUP_FILE=$(cat /backup/latest.txt)
-                  DATE=$(basename "${BACKUP_FILE}" | sed 's/wordpress_db_//;s/.sql.gz//')
+                  FILENAME=$(basename "${BACKUP_FILE}")
 
                   echo "=== Subiendo backup a MinIO ==="
                   mc alias set minio http://minio.storage.svc.cluster.local:9000 \
                     "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
 
-                  mc cp "${BACKUP_FILE}" "minio/wordpress-backups/mariadb/${DATE}.sql.gz"
-                  echo "=== Backup subido: mariadb/${DATE}.sql.gz ==="
+                  mc cp "${BACKUP_FILE}" "minio/wordpress-backups/mariadb/${FILENAME}"
+                  echo "=== Backup subido: mariadb/${FILENAME} ==="
 
-                  # Listar últimos 5 backups
                   mc ls minio/wordpress-backups/mariadb/ | tail -5
               env:
                 - name: MINIO_ACCESS_KEY
@@ -246,3 +244,4 @@ spec:
                 limits:
                   cpu: 200m
                   memory: 128Mi
+
