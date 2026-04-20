@@ -159,7 +159,7 @@ fi
 # 4. Asegurar que los namespaces existen
 # ============================================================
 log_info "Verificando namespaces necesarios..."
-for ns in storage wordpress monitoring; do
+for ns in storage wordpress monitoring databases; do
     kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
 done
 log_success "Namespaces verificados"
@@ -185,6 +185,14 @@ kubectl create secret generic minio-secret \
     --dry-run=client -o yaml | kubectl apply -f - \
     || log_error "Error aplicando minio-secret en namespace 'wordpress'"
 log_success "minio-secret (wordpress) aplicado"
+
+kubectl create secret generic minio-secret \
+    --namespace databases \
+    --from-literal=root-user="${MINIO_ROOT_USER}" \
+    --from-literal=root-password="${MINIO_ROOT_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    || log_error "Error aplicando minio-secret en namespace 'databases'"
+log_success "minio-secret (databases) aplicado"
 
 # ============================================================
 # 6. Inyectar Secret de Grafana
@@ -229,7 +237,7 @@ echo -e "${GREEN}   ✅  Configuración completada${NC}"
 echo -e "${GREEN}============================================================${NC}"
 echo ""
 echo -e "  Secrets aplicados en el clúster:"
-echo -e "    ${GREEN}✓${NC} minio-secret     (storage, wordpress)"
+echo -e "    ${GREEN}✓${NC} minio-secret     (storage, wordpress, databases)"
 echo -e "    ${GREEN}✓${NC} grafana-secret   (monitoring)"
 echo ""
 echo -e "  Los secrets de MariaDB y Redis los gestiona:"
