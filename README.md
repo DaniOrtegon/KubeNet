@@ -24,7 +24,6 @@
 16. [Próximas mejoras](#-próximas-mejoras)
 17. [Valor del proyecto](#-valor-del-proyecto)
 18. [Comandos útiles](#-comandos-útiles)
-19. [Licencia](#-licencia)
 
 ---
 
@@ -55,20 +54,17 @@ git clone <repo>
 cd KubeNet
 
 # 2. Instalar dependencias (Docker, kubectl, Minikube, Helm)
-chmod +x install.sh && ./install.sh
-# ⚠️ Si Docker se acaba de instalar, cierra sesión y vuelve a entrar antes de continuar
-
-# 3. Arrancar Minikube
-minikube start --cpus=4 --memory=8192
+./01-install.sh
 
 # 4. Configurar contraseñas (se generan interactivamente, nunca se guardan en el repo)
-chmod +x setup.sh && ./setup.sh
+./02-setup.sh
 
 # 5. Desplegar
-chmod +x deploy.sh && ./deploy.sh
+./03-deploy.sh
 
-# 6. Exponer servicios — ejecutar en otra terminal y dejar corriendo
-minikube tunnel
+# 6. Iniciar el cluster
+./start_all.sh
+
 ```
 
 Acceso tras el despliegue: **https://wp-k8s.local**
@@ -277,9 +273,10 @@ kubectl get certificates -A
 
 ```
 .
-├── install.sh                           # Instalación de dependencias
-├── deploy.sh                            # Despliegue idempotente completo
-├── setup.sh                             # Configuración inicial de contraseñas
+├── 01-install.sh                        # Instalación de dependencias
+├── 02-deploy.sh                         # Despliegue idempotente completo
+├── 03-setup.sh                          # Configuración inicial de contraseñas
+├── start_all.sh                         # Orquestador de recuperación y encendido       
 ├── runbook.md                           # Procedimientos operativos
 │
 └── k8s/
@@ -343,11 +340,11 @@ kubectl get certificates -A
 
 ## 📌 Próximas mejoras
 
-- [ ] Migración de manifiestos a Helm / Kustomize
-- [ ] GitOps con ArgoCD
-- [ ] External Secrets Operator
-- [ ] Clúster multi-nodo real
-- [ ] Pipeline CI con despliegue automático en cada merge
+- [ ] Estandarización con Helm/Kustomize: Sustituir los manifiestos YAML estáticos por plantillas dinámicas que permitan gestionar diferentes entornos (Dev, Staging, Prod) sin duplicar código.
+- [ ] External Secrets Operator (ESO): En lugar de gestionar secretos localmente, integrarlos con un servicio de bóveda real como HashiCorp Vault, AWS Secrets Manager o Azure Key Vault.
+- [ ] Alta Disponibilidad (Multi-node): Migrar de un nodo único a un clúster multi-nodo con auto-escalado de nodos (Cluster Autoscaler) para garantizar que el sistema no caiga si falla un servidor.
+- [ ] Pipeline CI/CD Robusto: Automatizar el ciclo de vida completo: desde el commit del desarrollador, pasando por el escaneo de seguridad de la imagen, hasta el despliegue controlado en el clúster.
+- [ ] Service Mesh (Istio/Linkerd): Para gestionar la seguridad entre microservicios (mTLS), observabilidad avanzada y despliegues tipo Canary o Blue-Green.
 
 ---
 
