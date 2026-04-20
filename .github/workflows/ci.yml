@@ -1,0 +1,94 @@
+# ============================================================
+# .github/workflows/ci.yml — Pipeline CI de KubeNet
+#
+# Se ejecuta en cada push y pull request sobre main.
+# Valida todos los manifiestos YAML del proyecto con kubectl
+# en modo dry-run contra un clúster Kind efímero.
+# ============================================================
+
+name: KubeNet CI — Validación de manifiestos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'k8s/**'
+
+jobs:
+  validate:
+    name: Validar YAMLs con kubectl dry-run
+    runs-on: ubuntu-latest
+
+    steps:
+      # --------------------------------------------------------
+      # 1. Checkout del repositorio
+      # --------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # 2. Instalar kubectl
+      # --------------------------------------------------------
+      - name: Instalar kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      # --------------------------------------------------------
+      # 3. Crear clúster Kind efímero
+      #    Kind (Kubernetes in Docker) levanta un clúster real
+      #    dentro del runner de GitHub para poder hacer dry-run
+      #    con validación de esquema real (no solo sintaxis YAML)
+      # --------------------------------------------------------
+      - name: Crear clúster Kind
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: kubeNet-ci
+
+      # --------------------------------------------------------
+      # 4. Crear namespaces necesarios para la validación
+      #    Los manifiestos referencian namespaces específicos;
+      #    deben existir antes del dry-run o kubectl los rechaza
+      # --------------------------------------------------------
+      - name: Crear namespaces
+        run: |
+          for ns in cert-manager databases ingress-nginx keda monitoring storage velero wordpress; do
+            kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+          done
+
+      # --------------------------------------------------------
+      # 5. Validar manifiestos por capa (orden lógico de despliegue)
+      #    --dry-run=server valida contra el API server real del
+      #    clúster Kind, detectando errores de esquema y referencias
+      # --------------------------------------------------------
+      - name: Validar core
+        run: kubectl apply -f k8s/core/ --dry-run=server
+
+      - name: Validar data
+        run: kubectl apply -f k8s/data/ --dry-run=server
+
+      - name: Validar storage
+        run: kubectl apply -f k8s/storage/ --dry-run=server
+
+      - name: Validar edge
+        run: kubectl apply -f k8s/edge/ --dry-run=server
+
+      - name: Validar app
+        run: kubectl apply -f k8s/app/ --dry-run=server
+
+      - name: Validar observability
+        run: kubectl apply -f k8s/observability/ --dry-run=server
+
+      # --------------------------------------------------------
+      # 6. Resumen final
+      # --------------------------------------------------------
+      - name: Resumen
+        if: success()
+        run: |
+          echo "✅ Todos los manifiestos han pasado la validación"
+          echo "   Capas validadas: core · data · storage · edge · app · observability"
