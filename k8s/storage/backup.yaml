@@ -32,9 +32,12 @@ spec:
             app: mariadb-backup
         spec:
           restartPolicy: OnFailure
-          containers:
-            - name: backup
-              image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+          volumes:
+            - name: backup-tmp
+              emptyDir: {}
+          initContainers:
+            - name: dump
+              image: mariadb:10.6
               imagePullPolicy: IfNotPresent
               command:
                 - sh
@@ -42,13 +45,9 @@ spec:
                 - |
                   set -e
                   DATE=$(date +%Y%m%d_%H%M%S)
-                  BACKUP_FILE="/tmp/wordpress_db_${DATE}.sql.gz"
+                  BACKUP_FILE="/backup/wordpress_db_${DATE}.sql.gz"
 
-                  echo "=== Instalando cliente MariaDB ==="
-                  apk add --no-cache mariadb-client > /dev/null 2>&1
-
-                  echo "=== Iniciando backup MariaDB: ${DATE} ==="
-
+                  echo "=== Iniciando dump MariaDB: ${DATE} ==="
                   mysqldump \
                     -h mariadb.databases.svc.cluster.local \
                     -u root \
@@ -58,21 +57,40 @@ spec:
                     --triggers \
                     wordpress_db | gzip > "${BACKUP_FILE}"
 
-                  echo "Dump completado: ${BACKUP_FILE}"
-
-                  mc alias set minio http://minio.storage.svc.cluster.local:9000 \
-                    "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
-
-                  mc cp "${BACKUP_FILE}" "minio/wordpress-backups/mariadb/${DATE}.sql.gz"
-                  echo "=== Backup subido a MinIO: mariadb/${DATE}.sql.gz ==="
-
-                  mc ls minio/wordpress-backups/mariadb/ | tail -5
+                  echo "=== Dump completado: ${BACKUP_FILE} ==="
+                  # Guardar el nombre del archivo para el contenedor principal
+                  echo "${BACKUP_FILE}" > /backup/latest.txt
               env:
                 - name: MYSQL_ROOT_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: mariadb-secret
                       key: mariadb-root-password
+              volumeMounts:
+                - name: backup-tmp
+                  mountPath: /backup
+          containers:
+            - name: upload
+              image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  BACKUP_FILE=$(cat /backup/latest.txt)
+                  DATE=$(basename "${BACKUP_FILE}" | sed 's/wordpress_db_//;s/.sql.gz//')
+
+                  echo "=== Subiendo backup a MinIO ==="
+                  mc alias set minio http://minio.storage.svc.cluster.local:9000 \
+                    "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
+
+                  mc cp "${BACKUP_FILE}" "minio/wordpress-backups/mariadb/${DATE}.sql.gz"
+                  echo "=== Backup subido: mariadb/${DATE}.sql.gz ==="
+
+                  # Listar últimos 5 backups
+                  mc ls minio/wordpress-backups/mariadb/ | tail -5
+              env:
                 - name: MINIO_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
@@ -83,6 +101,9 @@ spec:
                     secretKeyRef:
                       name: minio-secret
                       key: root-password
+              volumeMounts:
+                - name: backup-tmp
+                  mountPath: /backup
               resources:
                 requests:
                   cpu: 100m
