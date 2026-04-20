@@ -44,8 +44,17 @@ fi
 # =============================================================
 echo ""
 echo "[ 2/7 ] Configurando conectividad..."
+
+# DNS del nodo
 minikube ssh "echo 'nameserver 8.8.8.8' | sudo tee /etc/resolv.conf" > /dev/null
 ok "DNS 8.8.8.8 configurado en el nodo"
+
+# Parchear CoreDNS para que use 8.8.8.8 directamente y no herede /etc/resolv.conf
+kubectl patch configmap -n kube-system coredns --type merge -p \
+'{"data":{"Corefile":".:53 {\n    log\n    errors\n    health {\n       lameduck 5s\n    }\n    ready\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n       pods insecure\n       fallthrough in-addr.arpa ip6.arpa\n       ttl 30\n    }\n    prometheus :9153\n    hosts {\n       192.168.49.1 host.minikube.internal\n       fallthrough\n    }\n    forward . 8.8.8.8 8.8.4.4 {\n       max_concurrent 1000\n    }\n    cache 30 {\n       disable success cluster.local\n       disable denial cluster.local\n    }\n    loop\n    reload\n    loadbalance\n}\n"}}' > /dev/null 2>&1
+kubectl rollout restart deployment/coredns -n kube-system > /dev/null 2>&1
+kubectl rollout status deployment/coredns -n kube-system --timeout=60s > /dev/null 2>&1
+ok "CoreDNS parcheado con nameserver 8.8.8.8"
 
 # Limpieza y arranque de tunnel
 sudo pkill -f "minikube tunnel" 2>/dev/null || true
@@ -123,7 +132,7 @@ echo ""
 echo "=================================================="
 echo -e "${GREEN}  🎉 ¡Clúster KubeNet listo!${NC}"
 echo "=================================================="
-echo "  🌐 WordPress  : http://wp-k8s.local"
-echo "  📊 Grafana    : http://grafana.monitoring.local (User: admin)"
-echo "  🗄️  MinIO      : http://minio.storage.local"
+echo "  🌐 WordPress  : https://wp-k8s.local"
+echo "  📊 Grafana    : https://grafana.monitoring.local (User: admin)"
+echo "  🗄️  MinIO      : https://minio.storage.local"
 echo "=================================================="
