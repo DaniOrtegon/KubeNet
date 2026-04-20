@@ -16,15 +16,18 @@ Ejecuta este bloque antes de realizar operaciones manuales para cargar las contr
 ```bash
 # MariaDB Root
 MARIADB_ROOT_PASS=$(kubectl get secret mariadb-secret -n databases \
-  -o jsonpath='{.data.root-password}' | base64 -d)
+  -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
+echo "MariaDB Root: $MARIADB_ROOT_PASS"
 
-# Redis Password
+# MariaDB User
+MARIADB_USER_PASS=$(kubectl get secret mariadb-secret -n databases \
+  -o jsonpath='{.data.mariadb-user-password}' | base64 -d)
+echo "MariaDB User: $MARIADB_USER_PASS"
+
+# Redis
 REDIS_PASS=$(kubectl get secret redis-secret -n databases \
-  -o jsonpath='{.data.password}' | base64 -d)
-
-# Grafana Admin (Sincronizado con setup.sh)
-GRAFANA_PASS=$(kubectl get secret grafana-secret -n monitoring \
-  -o jsonpath='{.data.admin-password}' | base64 -d)
+  -o jsonpath='{.data.redis-password}' | base64 -d)
+echo "Redis: $REDIS_PASS"
 ```
 
 ---
