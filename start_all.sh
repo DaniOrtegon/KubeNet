@@ -242,6 +242,30 @@ else
     warn "No se encontró grafana-secret — ejecuta setup.sh primero"
 fi
 
+# --- REINICIAR DEPLOYMENTS QUE DEPENDEN DE SECRETS ---
+echo ""
+info "Reiniciando deployments dependientes de secrets..."
+kubectl rollout restart deployment -n storage minio > /dev/null 2>&1 \
+    && ok "MinIO reiniciado" || warn "No se pudo reiniciar MinIO"
+kubectl rollout restart deployment -n monitoring grafana > /dev/null 2>&1 \
+    && ok "Grafana reiniciado" || warn "No se pudo reiniciar Grafana"
+
+# Esperar a que Grafana esté listo antes de sincronizar password
+kubectl rollout status deployment -n monitoring grafana --timeout=60s > /dev/null 2>&1
+
+# Sincronizar password de Grafana
+info "Sincronizando credenciales de Grafana..."
+GRAFANA_PASS=$(kubectl get secret -n monitoring grafana-secret \
+    -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d)
+if [ -n "$GRAFANA_PASS" ]; then
+    kubectl exec -n monitoring deployment/grafana -- \
+        grafana-cli admin reset-admin-password "$GRAFANA_PASS" > /dev/null 2>&1 \
+        && ok "Grafana password sincronizada" \
+        || warn "No se pudo sincronizar Grafana"
+else
+    warn "No se encontró grafana-secret — ejecuta setup.sh primero"
+fi
+
 echo ""
 echo "--- Namespaces críticos ---"
 kubectl get pods -A --no-headers 2>/dev/null \

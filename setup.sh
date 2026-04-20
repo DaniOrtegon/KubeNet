@@ -13,6 +13,10 @@
 # via SealedSecrets (kubeseal). Este script gestiona los de
 # MinIO y Grafana, que no usan SealedSecrets.
 #
+# NOTA: El usuario de Grafana siempre es 'admin' — Grafana lo
+# crea así en su DB la primera vez y no se puede cambiar sin
+# borrar la DB. Solo la password es personalizable.
+#
 # REQUISITO: el clúster debe estar arrancado antes de ejecutar
 # este script (minikube start).
 #
@@ -101,8 +105,8 @@ if [ ! -f "$ENV_FILE" ]; then
     echo ""
 
     echo -e "${YELLOW}  Grafana${NC}"
-    read_value    "GRAFANA_ADMIN_USER"     "Usuario admin de Grafana (ej: admin)"
-    read_password "GRAFANA_ADMIN_PASSWORD" "Contraseña admin de Grafana"
+    echo -e "  ${CYAN:-}ℹ️  El usuario de Grafana siempre es 'admin'${NC:-}"
+    read_password "GRAFANA_ADMIN_PASSWORD" "Contraseña admin de Grafana" 8
     echo ""
 
     log_success ".env generado correctamente"
@@ -127,7 +131,6 @@ REQUIRED_VARS=(
     REDIS_PASSWORD
     MINIO_ROOT_USER
     MINIO_ROOT_PASSWORD
-    GRAFANA_ADMIN_USER
     GRAFANA_ADMIN_PASSWORD
 )
 
@@ -196,16 +199,18 @@ log_success "minio-secret (databases) aplicado"
 
 # ============================================================
 # 6. Inyectar Secret de Grafana
+# El usuario SIEMPRE es 'admin' — Grafana lo persiste en su DB
+# y no se puede cambiar sin borrar la DB completa.
 # ============================================================
 log_info "Inyectando secret de Grafana..."
 
 kubectl create secret generic grafana-secret \
     --namespace monitoring \
-    --from-literal=admin-user="${GRAFANA_ADMIN_USER}" \
+    --from-literal=admin-user="admin" \
     --from-literal=admin-password="${GRAFANA_ADMIN_PASSWORD}" \
     --dry-run=client -o yaml | kubectl apply -f - \
     || log_error "Error aplicando grafana-secret en namespace 'monitoring'"
-log_success "grafana-secret (monitoring) aplicado"
+log_success "grafana-secret (monitoring) aplicado — usuario: admin"
 
 # ============================================================
 # 7. Actualizar .gitignore
@@ -238,7 +243,7 @@ echo -e "${GREEN}============================================================${N
 echo ""
 echo -e "  Secrets aplicados en el clúster:"
 echo -e "    ${GREEN}✓${NC} minio-secret     (storage, wordpress, databases)"
-echo -e "    ${GREEN}✓${NC} grafana-secret   (monitoring)"
+echo -e "    ${GREEN}✓${NC} grafana-secret   (monitoring) — usuario: admin"
 echo ""
 echo -e "  Los secrets de MariaDB y Redis los gestiona:"
 echo -e "    ${YELLOW}→${NC} scripts/03-deploy-core.sh  (via SealedSecrets)"
@@ -248,3 +253,4 @@ echo ""
 echo -e "${BLUE}  Siguiente paso → despliega el proyecto:${NC}"
 echo -e "  ${GREEN}./deploy.sh${NC}"
 echo ""
+
