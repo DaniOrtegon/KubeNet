@@ -1,9 +1,9 @@
 # 🚀 KubeNet — WordPress HA en Kubernetes
 
-> Infraestructura cloud-native completa sobre Minikube, diseñada como entorno de producción simulado con foco en alta disponibilidad, escalado inteligente, observabilidad end-to-end y seguridad real.
+> Infraestructura cloud-native completa sobre Minikube: alta disponibilidad, escalado por tráfico real, observabilidad end-to-end y seguridad en profundidad. Entorno de producción simulado, no una demo básica.
 
+[![CI](https://img.shields.io/badge/CI-kubeconform%20%7C%20kube--score-brightgreen?logo=githubactions&logoColor=white)](https://github.com/features/actions)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Minikube-326CE5?logo=kubernetes&logoColor=white)](https://minikube.sigs.k8s.io/)
-[![WordPress](https://img.shields.io/badge/WordPress-HA-21759B?logo=wordpress&logoColor=white)](https://wordpress.org/)
 [![KEDA](https://img.shields.io/badge/Autoscaling-KEDA-FF6B35)](https://keda.sh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -12,17 +12,17 @@
 ## 📑 Índice
 
 1. [Descripción](#-descripción)
-2. [Stack tecnológico](#-stack-tecnológico)
-3. [Requisitos previos](#-requisitos-previos)
-4. [Despliegue rápido](#-despliegue-rápido)
+2. [Objetivo del proyecto](#-objetivo-del-proyecto)
+3. [Despliegue rápido](#-despliegue-rápido)
+4. [Stack tecnológico](#-stack-tecnológico)
 5. [Arquitectura](#-arquitectura)
 6. [Alta disponibilidad](#-alta-disponibilidad)
 7. [Escalado automático (KEDA)](#-escalado-automático-keda)
 8. [Seguridad](#-seguridad)
 9. [Observabilidad](#-observabilidad)
 10. [Backup y recuperación](#-backup-y-recuperación)
-11. [CI/CD](#-cicd)
-12. [Accesos](#-accesos)
+11. [CI Pipeline](#-ci-pipeline)
+12. [Accesos y testing](#-accesos-y-testing)
 13. [Estructura del proyecto](#-estructura-del-proyecto)
 14. [Decisiones de diseño](#-decisiones-de-diseño)
 15. [Limitaciones conocidas](#-limitaciones-conocidas)
@@ -35,13 +35,59 @@
 
 ## 📋 Descripción
 
-KubeNet es un despliegue de WordPress en alta disponibilidad sobre Kubernetes (Minikube) pensado como **entorno de producción simulado**, no como demo básica. Integra las capas habituales de una arquitectura cloud-native real:
+KubeNet es un despliegue de WordPress en alta disponibilidad sobre Kubernetes (Minikube) diseñado como **entorno de producción simulado**, con las mismas capas que encontrarías en una arquitectura cloud-native real.
 
-- **Alta disponibilidad** en todos los componentes críticos
-- **Escalado automático** basado en tráfico real (req/s), no solo CPU
-- **Observabilidad end-to-end**: métricas, logs, trazas y alertas
-- **Seguridad en profundidad**: NetworkPolicies, Sealed Secrets, TLS automático, Pod Security Standards
-- **Backup y recuperación** automatizada con objetivos RPO/RTO definidos
+Lo que lo diferencia de una demo estándar: escala por tráfico real (no solo CPU), implementa observabilidad completa con métricas + logs + trazas, gestiona secretos cifrados versionables, y automatiza backups con objetivos RPO/RTO definidos. Todo el despliegue es reproducible desde cero con tres comandos.
+
+---
+
+## 🎯 Objetivo del proyecto
+
+El objetivo no es levantar WordPress. Es demostrar:
+
+- **IaC real**: toda la infraestructura declarada en YAML versionado, sin pasos manuales
+- **Automatización completa**: un solo script despliega el clúster entero de forma idempotente
+- **Reproducibilidad**: cualquier persona puede clonar el repo y tener el entorno exacto en minutos
+- **Mínima intervención manual**: las contraseñas se generan interactivamente una sola vez y nunca se versionan
+
+---
+
+## ⚡ Despliegue rápido
+
+```bash
+# 1. Clonar el repositorio
+git clone <repo>
+cd KubeNet
+
+# 2. Instalar dependencias (Docker, kubectl, Minikube, Helm)
+chmod +x install.sh && ./install.sh
+# ⚠️ Si Docker se acaba de instalar, cierra sesión y vuelve a entrar antes de continuar
+
+# 3. Arrancar Minikube
+minikube start --cpus=4 --memory=8192
+
+# 4. Configurar contraseñas (se generan interactivamente, nunca se guardan en el repo)
+chmod +x setup.sh && ./setup.sh
+
+# 5. Desplegar
+chmod +x deploy.sh && ./deploy.sh
+
+# 6. Exponer servicios — ejecutar en otra terminal y dejar corriendo
+minikube tunnel
+```
+
+Acceso tras el despliegue: **https://wp-k8s.local**
+
+> ✔ `deploy.sh` es **idempotente**: puede ejecutarse múltiples veces sin romper el estado del clúster.
+> El navegador mostrará un aviso de certificado self-signed — acepta la excepción.
+
+**Requisitos mínimos de la máquina:**
+
+| Recurso | Mínimo |
+|---|---|
+| CPU | 4 cores |
+| RAM | 8 GB |
+| Disco | 40 GB |
 
 ---
 
@@ -59,65 +105,12 @@ KubeNet es un despliegue de WordPress en alta disponibilidad sobre Kubernetes (M
 | Backup | Velero |
 | Métricas | Prometheus |
 | Visualización | Grafana |
-| Logs | Loki |
+| Logs | Loki + Promtail |
 | Trazas | Jaeger + OpenTelemetry |
 | Secrets | Sealed Secrets (kubeseal) |
+| CI | kubeconform · kube-score · detect-secrets |
 
 ---
-
-## ⚙️ Requisitos previos
-
-### Recursos de la máquina
-
-| Recurso | Mínimo |
-|---|---|
-| CPU | 4 cores |
-| RAM | 8 GB |
-| Disco | 40 GB |
-
-### Herramientas (se instalan automáticamente con `install.sh`)
-
-```
-Docker · kubectl · Minikube · Helm
-```
-
----
-
-## ⚡ Despliegue rápido
-
-```bash
-# 1. Clonar el repositorio
-git clone <repo>
-cd KubeNet
-
-# 2. Instalar dependencias (Docker, kubectl, Minikube, Helm)
-chmod +x install.sh
-./install.sh
-
-# ⚠️  Si Docker se acaba de instalar, cierra sesión y vuelve a entrar antes de continuar
-
-# 3. Arrancar Minikube
-minikube start --cpus=4 --memory=8192
-
-# 4. Configurar contraseñas (se generan interactivamente, nunca se guardan en el repo)
-chmod +x setup.sh
-./setup.sh
-
-# 5. Desplegar
-chmod +x deploy.sh
-./deploy.sh
-
-# 6. Exponer servicios — ejecutar en otra terminal y dejarlo corriendo
-minikube tunnel
-```
-
-Acceso tras el despliegue: **https://wp-k8s.local**
-
-> ✔ El script `deploy.sh` es **idempotente**: puede ejecutarse múltiples veces sin romper el estado del clúster.
-> El navegador mostrará un aviso de certificado — es normal, el TLS es self-signed. Acepta la excepción.
-
----
-
 
 ## 🏗️ Arquitectura
 
@@ -127,17 +120,17 @@ Acceso tras el despliegue: **https://wp-k8s.local**
 Browser
   │
   ▼
-Ingress NGINX (TLS)
+Ingress NGINX (TLS terminado)
   │
   ▼
 Service WordPress
   │
-  ┌──────────┴──────────┐
-  ▼                     ▼
-Redis (caché)     MariaDB Primary
-                       │
-                       ▼
-                  MariaDB Replica
+  ┌──────────────┴──────────────┐
+  ▼                             ▼
+Redis (caché de objetos)   MariaDB Primary (R/W)
+                                │
+                                ▼
+                          MariaDB Replica (R + failover)
 ```
 
 ### Namespaces
@@ -165,29 +158,23 @@ Redis (caché)     MariaDB Primary
 
 ## 🔁 Alta disponibilidad
 
-### WordPress
-
-- Mínimo 2 réplicas activas
-- `PodDisruptionBudget` configurado
+**WordPress**
+- Mínimo 2 réplicas activas + `PodDisruptionBudget`
 - `readinessProbe` y `livenessProbe` en todos los pods
 
-### MariaDB
-
-- `mariadb-0` → **Primary** (lectura/escritura)
-- `mariadb-1` → **Replica** (lectura + failover)
+**MariaDB**
+- `mariadb-0` → Primary (R/W), `mariadb-1` → Replica (R + failover)
 - Replicación automática gestionada por Job de inicialización
 
-### Redis + Sentinel
-
+**Redis + Sentinel**
 - 1 master + 2 réplicas
-- 3 instancias de Sentinel para quórum
-- Failover automático y transparente para la aplicación
+- 3 instancias de Sentinel para quórum y failover automático
 
 ---
 
 ## 📈 Escalado automático (KEDA)
 
-El autoscaling de WordPress está gestionado por **KEDA** (Kubernetes Event-Driven Autoscaling), usando métricas reales de tráfico en lugar de solo CPU.
+El autoscaling está gestionado por **KEDA** (Kubernetes Event-Driven Autoscaling) en lugar de HPA clásico.
 
 | Parámetro | Valor |
 |---|---|
@@ -196,38 +183,21 @@ El autoscaling de WordPress está gestionado por **KEDA** (Kubernetes Event-Driv
 | Trigger principal | Prometheus (req/s) |
 | Trigger fallback | CPU |
 
-**Ventajas frente a HPA clásico:**
-- Escala de forma **proactiva** ante picos de tráfico, no reactiva
-- Evita saturación antes de que ocurra
+**Por qué KEDA y no HPA:**
+- Escala de forma **proactiva** ante picos de tráfico, antes de que ocurra la saturación
+- Usa métricas reales de tráfico (req/s desde Prometheus), no solo CPU
 - Soporta múltiples triggers y métricas externas
 
 ---
 
 ## 🔐 Seguridad
 
-### NetworkPolicies
-
-- Modelo **default-deny** en todos los namespaces
-- Solo tráfico explícitamente declarado está permitido
-
-### Sealed Secrets
-
-- Secrets cifrados y versionables en el repositorio
-- El descifrado solo es posible dentro del clúster con la clave privada del controlador
+- **NetworkPolicies**: modelo default-deny en todos los namespaces; solo tráfico explícitamente declarado permitido
+- **Sealed Secrets**: secretos cifrados y versionables en el repo; solo descifrables dentro del clúster con la clave privada del controlador
+- **TLS (cert-manager)**: CA interna gestionada, certificados auto-renovables, HTTPS forzado en todos los endpoints; `FORCE_SSL_ADMIN` y `FORCE_SSL_LOGIN` activos en WordPress
+- **Pod Security Standards**: perfil `baseline` en todos los namespaces; `privileged` únicamente en Velero (requerido por drivers de snapshot)
 
 > ⚠️ No se almacenan credenciales reales ni en texto plano en el repositorio.
-
-### TLS (cert-manager)
-
-- CA interna del clúster gestionada por cert-manager
-- Certificados auto-renovables
-- HTTPS forzado en todos los endpoints públicos
-- WordPress configurado con `FORCE_SSL_ADMIN` y `FORCE_SSL_LOGIN`
-
-### Pod Security Standards
-
-- Perfil `baseline` aplicado a todos los namespaces
-- Perfil `privileged` únicamente en el namespace de Velero (requerido por los drivers de snapshot)
 
 ---
 
@@ -237,32 +207,28 @@ El autoscaling de WordPress está gestionado por **KEDA** (Kubernetes Event-Driv
 |---|---|
 | Prometheus | Recolección de métricas |
 | Grafana | Dashboards y alertas |
-| Loki | Agregación de logs |
+| Loki + Promtail | Agregación de logs |
 | Jaeger | Trazas distribuidas |
 | OpenTelemetry | Instrumentación y telemetría |
 
-### SLOs definidos
+**SLOs definidos:**
 
 | Indicador | Objetivo |
 |---|---|
 | Disponibilidad | ≥ 99.5% |
 | Latencia p95 | ≤ 2s |
 
-El dashboard de Grafana personalizado (`Kubernetes_Dashboard.json`) está incluido en el repositorio para importación directa.
+El dashboard personalizado de Grafana (`Kubernetes_Dashboard.json`) está incluido en el repo para importación directa.
 
 ---
 
 ## 💾 Backup y recuperación
-
-### Estrategia
 
 | Tipo | Frecuencia |
 |---|---|
 | DB dump (MariaDB) | Diario |
 | Uploads (wp-content) | Diario |
 | Snapshots de clúster (Velero) | Diario |
-
-### Objetivos
 
 | Indicador | Valor |
 |---|---|
@@ -271,20 +237,22 @@ El dashboard de Grafana personalizado (`Kubernetes_Dashboard.json`) está inclui
 
 ---
 
-## 🔄 CI/CD
+## 🔄 CI Pipeline
 
 Validación automática en cada push al repositorio:
 
-```
-kubeconform / kubeval    → validación de manifiestos YAML
-kube-score               → análisis de buenas prácticas
-detect-secrets           → detección de credenciales expuestas
-resource validation      → comprobación de limits/requests
-```
+| Herramienta | Qué valida |
+|---|---|
+| `kubeconform` | Validación de esquemas de manifiestos YAML |
+| `kube-score` | Análisis de buenas prácticas (probes, limits, etc.) |
+| `detect-secrets` | Detección de credenciales expuestas |
+| Resource validation | Comprobación de limits/requests en todos los pods |
+
+El pipeline ejecuta las validaciones contra un clúster Kind efímero, garantizando que los manifiestos son aplicables antes de cualquier merge.
 
 ---
 
-## 🌐 Accesos
+## 🌐 Accesos y testing
 
 | Servicio | URL |
 |---|---|
@@ -295,49 +263,62 @@ resource validation      → comprobación de limits/requests
 
 > Requiere `minikube tunnel` activo y las entradas correspondientes en `/etc/hosts`.
 
+**Verificación rápida post-despliegue:**
+
+```bash
+# Comprobar que todos los pods están Running
+kubectl get pods -A
+
+# Verificar que el ScaledObject de KEDA está activo
+kubectl get scaledobject -n wordpress
+
+# Comprobar certificados TLS
+kubectl get certificates -A
+```
+
 ---
 
 ## 📁 Estructura del proyecto
 
 ```
 .
-├── install.sh                       # Instalación de dependencias (Docker, kubectl, Minikube, Helm)
-├── deploy.sh                        # Script de despliegue idempotente
-├── setup.sh                         # Configuración inicial de contraseñas
-├── runbook.md                        # Procedimientos operativos
+├── install.sh                           # Instalación de dependencias
+├── deploy.sh                            # Despliegue idempotente completo
+├── setup.sh                             # Configuración inicial de contraseñas
+├── runbook.md                           # Procedimientos operativos
 │
 └── k8s/
     ├── app/
-    │   ├── wordpress.yaml            # Deployment + Service de WordPress
-    │   └── keda-wordpress.yaml       # ScaledObject KEDA (min:2 max:10, req/s + CPU)
+    │   ├── wordpress.yaml               # Deployment + Service de WordPress
+    │   └── keda-wordpress.yaml          # ScaledObject KEDA (min:2 max:10)
     │
     ├── core/
-    │   ├── namespace.yaml            # Namespaces del proyecto
-    │   ├── configmap.yaml            # ConfigMaps (mariadb-config + wordpress-config)
-    │   ├── network-policy.yaml       # NetworkPolicies (default-deny + reglas explícitas)
-    │   ├── pdb.yaml                  # PodDisruptionBudget de WordPress
-    │   └── resource-quota.yaml       # ResourceQuota y LimitRange
+    │   ├── namespace.yaml               # Namespaces del proyecto
+    │   ├── configmap.yaml               # ConfigMaps
+    │   ├── network-policy.yaml          # NetworkPolicies (default-deny)
+    │   ├── pdb.yaml                     # PodDisruptionBudget
+    │   └── resource-quota.yaml          # ResourceQuota y LimitRange
     │
     ├── data/
-    │   ├── mariadb.yaml              # MariaDB HA — StatefulSet (primary + replica)
-    │   ├── mariadb-replication-job.yaml  # Job de configuración de replicación
-    │   └── redis.yaml                # Redis HA — StatefulSet + Sentinel sidecars
+    │   ├── mariadb.yaml                 # MariaDB HA (primary + replica)
+    │   ├── mariadb-replication-job.yaml # Job de configuración de replicación
+    │   └── redis.yaml                   # Redis HA + Sentinel
     │
     ├── edge/
-    │   ├── cert-manager.yaml         # ClusterIssuers + Certificados TLS
-    │   └── ingress.yaml              # Ingress NGINX con TLS
+    │   ├── cert-manager.yaml            # ClusterIssuers + Certificados TLS
+    │   └── ingress.yaml                 # Ingress NGINX con TLS
     │
     ├── observability/
-    │   ├── prometheus.yaml           # Prometheus + Alertmanager
-    │   ├── grafana.yaml              # Grafana con datasources integrados
-    │   ├── loki.yaml                 # Loki + Promtail
-    │   └── tracing.yaml              # Jaeger + OTel Collector
+    │   ├── prometheus.yaml              # Prometheus + Alertmanager
+    │   ├── grafana.yaml                 # Grafana con datasources integrados
+    │   ├── loki.yaml                    # Loki + Promtail
+    │   └── tracing.yaml                 # Jaeger + OTel Collector
     │
     └── storage/
-        ├── pvc.yaml                  # PersistentVolumeClaims
-        ├── minio.yaml                # MinIO — almacenamiento S3 compatible
-        ├── backup.yaml               # CronJobs de backup (MariaDB + uploads)
-        └── velero.yaml               # Velero — bucket setup + NetworkPolicy
+        ├── pvc.yaml                     # PersistentVolumeClaims
+        ├── minio.yaml                   # MinIO S3 compatible
+        ├── backup.yaml                  # CronJobs de backup
+        └── velero.yaml                  # Velero + NetworkPolicy
 ```
 
 ---
@@ -346,21 +327,22 @@ resource validation      → comprobación de limits/requests
 
 | Decisión | Motivo |
 |---|---|
-| YAML plano (sin Helm) | Control total sobre cada manifiesto |
-| KEDA en lugar de HPA | Escalado real por tráfico, no solo CPU |
-| MinIO | Almacenamiento S3 local sin dependencia cloud |
-| Sealed Secrets | Seguridad sin necesidad de gestión cloud externa |
-| Jaeger en modo simple | Menor complejidad operativa para entorno local |
-| Minikube | Entorno completamente reproducible en local |
-| setup.sh interactivo | Sin archivos de ejemplo en el repo — las contraseñas nunca se versionan |
+| YAML plano (sin Helm) | Control total sobre cada manifiesto; sin abstracciones que oculten comportamiento |
+| KEDA en lugar de HPA | Escalado por tráfico real (req/s), no solo CPU; proactivo en vez de reactivo |
+| MinIO en lugar de S3 real | Almacenamiento S3 local sin dependencia cloud; entorno 100% reproducible |
+| Sealed Secrets | Secretos cifrados versionables sin necesidad de gestión cloud externa |
+| Jaeger en modo simple | Menor complejidad operativa para entorno local, suficiente para tracing |
+| Minikube | Entorno completamente reproducible en cualquier máquina local |
+| setup.sh interactivo | Las contraseñas nunca se versionan; se generan en el momento del despliegue |
 
 ---
 
 ## 🚧 Limitaciones conocidas
 
-- Entorno local (no cloud real): sin LoadBalancer externo ni DNS público
-- Algunas imágenes no están optimizadas para ejecución rootless
-- Sin GitOps implementado (ArgoCD / Flux fuera del alcance actual)
+- **Entorno local**: sin LoadBalancer externo ni DNS público; requiere `minikube tunnel` y `/etc/hosts`
+- **Sin multi-nodo**: Minikube corre en un único nodo; la HA es lógica, no física
+- **Algunas imágenes no son rootless**: limitación de las imágenes upstream, no del despliegue
+- **Sin GitOps**: ArgoCD/Flux están fuera del alcance actual del proyecto
 
 ---
 
@@ -378,11 +360,12 @@ resource validation      → comprobación de limits/requests
 
 Este proyecto demuestra capacidad para:
 
-- Diseñar arquitecturas cloud-native completas
-- Operar Kubernetes de forma realista, no solo declarativa
-- Implementar observabilidad real (métricas + logs + trazas)
-- Gestionar fallos, runbooks y recuperación
-- Tomar decisiones técnicas razonadas y documentadas
+- Diseñar arquitecturas cloud-native completas con criterio, no solo seguir tutoriales
+- Operar Kubernetes de forma realista: probes, PDBs, NetworkPolicies, resource quotas
+- Implementar observabilidad real: métricas + logs + trazas + alertas + SLOs
+- Gestionar secretos de forma segura sin comprometer la reproducibilidad del repo
+- Tomar decisiones técnicas razonadas y documentarlas (KEDA vs HPA, MinIO vs S3, etc.)
+- Automatizar el ciclo completo de despliegue con scripts idempotentes
 
 ---
 
