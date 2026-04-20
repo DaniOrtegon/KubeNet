@@ -20,20 +20,6 @@ spec:
   storageClassName: standard
 
 ---
-# Credenciales del administrador; los valores están en base64 (no cifrados)
-# Inyectados como variables de entorno GF_SECURITY_ADMIN_USER y GF_SECURITY_ADMIN_PASSWORD
-# --- Secret con credenciales de Grafana ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-secret
-  namespace: monitoring
-type: Opaque
-data:
-  admin-user: YWRtaW4=          # 'admin' en base64
-  admin-password: S3ViZW5ldEdyYWZhbmEjMjAwNiE=  # 'admin123' en base64 — CAMBIAR en producción
-
----
 # --- ConfigMap: provisioning de datasources (Prometheus + Loki) ---
 # Grafana carga este fichero al arrancar y configura las fuentes de datos automáticamente
 # access: proxy — Grafana hace las consultas desde el servidor, no desde el browser del usuario
