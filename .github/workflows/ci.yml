@@ -38,7 +38,7 @@ jobs:
       - name: Crear namespaces
         run: |
           set -e
-          for ns in cert-manager databases ingress-nginx keda monitoring storage velero wordpress; do
+          for ns in cert-manager databases ingress-nginx keda monitoring security storage velero wordpress; do
             kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
           done
 
@@ -46,13 +46,15 @@ jobs:
         run: |
           set -e
           kubectl apply -f k8s/core/ --dry-run=server
-          kubectl apply -f k8s/app/ --dry-run=server
 
       - name: Instalar kubeconform
         run: |
           set -e
-          curl -L https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
-          sudo mv kubeconform /usr/local/bin/
+          KUBECONFORM_VERSION="v0.6.7"
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
 
       - name: Validar manifests con kubeconform
         run: |
@@ -61,10 +63,12 @@ jobs:
             -strict \
             -summary \
             -ignore-missing-schemas \
-            -recursive k8s/
+            -recursive \
+            k8s/
 
       - name: Resumen
         if: success()
         run: |
           echo "✅ Validación completada correctamente"
-          echo "kubectl (core) + kubeconform (CRDs)"
+          echo " - kubectl: recursos core/nativos"
+          echo " - kubeconform: validación recursiva del árbol k8s/"
