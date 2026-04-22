@@ -75,12 +75,20 @@ kubectl wait --for=condition=complete job/velero-bucket-setup \
 
 # ------------------------------------------------------------
 # Credenciales MinIO para Velero
+# FIX: las keys correctas en minio-secret (storage) son
+#      root-user / root-password, no access-key / secret-key
 # ------------------------------------------------------------
 MINIO_ACCESS_KEY=$(kubectl get secret minio-secret -n storage \
-  -o jsonpath='{.data.access-key}' 2>/dev/null | base64 -d 2>/dev/null || echo "CHANGE_ME")
+  -o jsonpath='{.data.root-user}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
 MINIO_SECRET_KEY=$(kubectl get secret minio-secret -n storage \
-  -o jsonpath='{.data.secret-key}' 2>/dev/null | base64 -d 2>/dev/null || echo "CHANGE_ME")
+  -o jsonpath='{.data.root-password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
 MINIO_URL="http://minio.storage.svc.cluster.local:9000"
+
+if [ -z "$MINIO_ACCESS_KEY" ] || [ -z "$MINIO_SECRET_KEY" ]; then
+  log_error "No se encontraron credenciales de MinIO en minio-secret (storage). Ejecuta ./setup.sh primero."
+fi
+
+log_success "Credenciales de MinIO leídas correctamente (usuario: ${MINIO_ACCESS_KEY})"
 
 # ------------------------------------------------------------
 # Instalar Velero via Helm
