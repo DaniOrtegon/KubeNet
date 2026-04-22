@@ -90,6 +90,25 @@ echo "[ 4/7 ] Refrescando servicios dependientes de secrets..."
 kubectl rollout restart deployment -n storage minio > /dev/null 2>&1 && ok "MinIO reiniciado"
 kubectl rollout restart deployment -n monitoring grafana > /dev/null 2>&1 && ok "Grafana reiniciado"
 
+# Sincronizar credenciales de MinIO en el Secret de Velero
+MINIO_USER=$(kubectl get secret minio-secret -n storage \
+  -o jsonpath='{.data.root-user}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+MINIO_PASS=$(kubectl get secret minio-secret -n storage \
+  -o jsonpath='{.data.root-password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+
+if [ -n "$MINIO_USER" ] && [ -n "$MINIO_PASS" ]; then
+    kubectl create secret generic velero \
+      -n velero \
+      --from-literal=cloud="[default]
+aws_access_key_id=${MINIO_USER}
+aws_secret_access_key=${MINIO_PASS}" \
+      --dry-run=client -o yaml | kubectl apply -f - > /dev/null 2>&1
+    kubectl rollout restart deployment/velero -n velero > /dev/null 2>&1
+    ok "Velero secret actualizado y pod reiniciado"
+else
+    warn "No se encontraron credenciales de MinIO — Velero no se ha actualizado"
+fi
+
 # =============================================================
 # [ 5/7 ] SINCRONIZACIÓN DE CREDENCIALES (GRAFANA)
 # =============================================================
