@@ -53,10 +53,12 @@ data:
       retention_period: 744h    # Retención de logs: 31 días (alineado con política de backup)
       ingestion_rate_mb: 16     # Tasa máxima de ingesta: 16 MB/s (protección contra floods de logs)
       ingestion_burst_size_mb: 32  # Permite picos puntuales de hasta 32 MB antes de throttling
+      reject_old_samples: false           # Acepta logs con timestamps antiguos (necesario tras reinicios)
+      reject_old_samples_max_age: 168h    # Si se activa el rechazo, permite hasta 7 días atrás
 
     compactor:
       working_directory: /loki/compactor
-      retention_enabled: true   # Activa la limpieza automática según retention_period (sin esto los datos nunca se borran)
+      retention_enabled: false  # Desactivado: retention con filesystem no soporta delete store en Loki 2.9
 
 ---
 # --- Deployment de Loki ---
@@ -164,27 +166,26 @@ data:
       - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push  # Endpoint de ingesta de Loki
 
     scrape_configs:
-      - job_name: kubernetes-pods
+      # Mètode file_sd: llegeix directament els fitxers de log del node
+      # És el mètode més fiable a Minikube; no depèn de ports ni de la API de Kubernetes per descobrir targets
+      - job_name: kubernetes-pods-file
         pipeline_stages:
-          - docker: {}   # Parsea el formato JSON de logs de Docker (timestamp, stream, log)
-        kubernetes_sd_configs:
-          - role: pod    # Descubre todos los pods del clúster via API de Kubernetes
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_node_name]
-            target_label: __host__   # Asocia cada log al nodo donde corre el pod
-          - action: labelmap
-            regex: __meta_kubernetes_pod_label_(.+)   # Propaga las labels del pod como labels del log
-          - source_labels: [__meta_kubernetes_namespace]
-            target_label: namespace   # Label 'namespace' en cada log: permite filtrar en Grafana
-          - source_labels: [__meta_kubernetes_pod_name]
-            target_label: pod         # Label 'pod': identifica el pod origen del log
-          - source_labels: [__meta_kubernetes_container_name]
-            target_label: container   # Label 'container': identifica el contenedor dentro del pod
-          # Filtro de namespaces: solo recolecta logs de los namespaces relevantes del proyecto
-          # Ignora kube-system, kube-public y otros namespaces de infraestructura
-          - source_labels: [__meta_kubernetes_namespace]
-            regex: wordpress|databases|monitoring|security
-            action: keep
+          - docker: {}   # Parsea el formato JSON de Docker; Minikube usa Docker como runtime
+          # Extrae namespace, pod y container del label 'filename' que Promtail asigna automáticamente
+          - regex:
+              source: filename
+              expression: '/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+)_[^/]+/(?P<container>[^/]+)/.*'
+          # Promueve los campos extraídos a labels de Loki
+          - labels:
+              namespace:
+              pod:
+              container:
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: kubernetes-pods
+              __path__: /var/log/pods/{wordpress,databases,monitoring,security}_*/*/*.log
 
 ---
 # --- ServiceAccount para Promtail ---
@@ -265,9 +266,15 @@ spec:
             - name: varlog
               mountPath: /var/log
               readOnly: true                              # Logs del sistema y del kubelet
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true                              # Logs de contenedores (válido con containerd y Docker)
+            - name: containers
+              mountPath: /var/log/containers
+              readOnly: true                              # Symlinks de kubelet
             - name: varlibdockercontainers
               mountPath: /var/lib/docker/containers
-              readOnly: true                              # Logs de contenedores Docker (stdout/stderr)
+              readOnly: true                              # Logs reales de Docker; destino de los symlinks en /var/log/pods
       volumes:
         - name: config
           configMap:
@@ -275,6 +282,12 @@ spec:
         - name: varlog
           hostPath:
             path: /var/log                              # Directorio de logs del nodo host
+        - name: pods
+          hostPath:
+            path: /var/log/pods                         # Logs reales de contenedores (containerd y Docker)
+        - name: containers
+          hostPath:
+            path: /var/log/containers
         - name: varlibdockercontainers
           hostPath:
-            path: /var/lib/docker/containers            # Directorio de logs de contenedores Docker en el nodo
+            path: /var/lib/docker/containers            # Logs reales; destino de los symlinks en /var/log/pods
