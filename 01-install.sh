@@ -8,6 +8,7 @@
 #   - kubectl
 #   - Minikube
 #   - Helm
+#   - Velero CLI
 #
 # USO:
 #   chmod +x install.sh
@@ -74,7 +75,6 @@ install_docker() {
   sudo apt-get update -q
   sudo apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-  # Añadir el usuario actual al grupo docker para no necesitar sudo
   sudo usermod -aG docker "$USER"
 
   log_success "Docker instalado: $(docker --version)"
@@ -134,6 +134,30 @@ install_helm() {
 }
 
 # ============================================================
+# 5. Velero CLI
+# ============================================================
+install_velero_cli() {
+  if command -v velero &>/dev/null; then
+    log_success "Velero CLI ya está instalado: $(velero version --client-only 2>/dev/null | grep Version || echo 'instalado')"
+    return
+  fi
+
+  local VERSION="v1.12.4"
+  log_info "Instalando Velero CLI ${VERSION}..."
+
+  curl -fsSLo /tmp/velero.tar.gz \
+    "https://github.com/vmware-tanzu/velero/releases/download/${VERSION}/velero-${VERSION}-linux-amd64.tar.gz"
+
+  tar -xzf /tmp/velero.tar.gz -C /tmp "velero-${VERSION}-linux-amd64/velero"
+  sudo install -o root -g root -m 0755 \
+    "/tmp/velero-${VERSION}-linux-amd64/velero" /usr/local/bin/velero
+
+  rm -rf /tmp/velero.tar.gz "/tmp/velero-${VERSION}-linux-amd64"
+
+  log_success "Velero CLI instalado: $(velero version --client-only 2>/dev/null | grep Version)"
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 install_docker
@@ -143,6 +167,8 @@ echo ""
 install_minikube
 echo ""
 install_helm
+echo ""
+install_velero_cli
 echo ""
 
 # ============================================================
@@ -157,6 +183,7 @@ echo -e "  ${GREEN}✓${NC} Docker     $(docker --version 2>/dev/null || echo 'i
 echo -e "  ${GREEN}✓${NC} kubectl    $(kubectl version --client --short 2>/dev/null || kubectl version --client 2>/dev/null | head -1)"
 echo -e "  ${GREEN}✓${NC} Minikube   $(minikube version --short 2>/dev/null)"
 echo -e "  ${GREEN}✓${NC} Helm       $(helm version --short 2>/dev/null)"
+echo -e "  ${GREEN}✓${NC} Velero CLI $(velero version --client-only 2>/dev/null | grep Version || echo 'instalado')"
 echo ""
 echo -e "${YELLOW}  Si acabas de instalar Docker, cierra sesión y vuelve a entrar antes de continuar.${NC}"
 echo -e "${YELLOW}  Esto es necesario para que tu usuario pueda usar Docker sin sudo.${NC}"
