@@ -1,0 +1,878 @@
+{
+  "annotations": {
+	"list": [
+  	{
+    	"builtIn": 1,
+    	"datasource": {
+      	"type": "datasource",
+      	"uid": "grafana"
+    	},
+    	"enable": true,
+    	"hide": true,
+    	"iconColor": "rgba(0, 211, 255, 1)",
+    	"name": "Annotations & Alerts",
+    	"target": {
+      	"limit": 100,
+      	"matchAny": false,
+      	"tags": [],
+      	"type": "dashboard"
+    	},
+    	"type": "dashboard"
+  	}
+	]
+  },
+  "description": "Dashboard de logs para el proyecto KubeNet. Cubre los namespaces wordpress, databases, monitoring y security.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 13,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+	{
+  	"collapsed": false,
+  	"datasource": {
+    	"type": "prometheus",
+    	"uid": "prometheus"
+  	},
+  	"gridPos": {
+    	"h": 1,
+    	"w": 24,
+    	"x": 0,
+    	"y": 0
+  	},
+  	"id": 20,
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "prometheus",
+        	"uid": "prometheus"
+      	},
+      	"refId": "A"
+    	}
+  	],
+  	"title": "📊 Overview",
+  	"type": "row"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Total de logs en el rango de tiempo seleccionado para wordpress",
+  	"fieldConfig": {
+    	"defaults": {
+      	"color": {
+        	"mode": "thresholds"
+      	},
+      	"mappings": [],
+      	"thresholds": {
+        	"mode": "absolute",
+        	"steps": [
+          	{
+            	"color": "green",
+            	"value": null
+          	},
+          	{
+            	"color": "yellow",
+            	"value": 1000
+          	},
+          	{
+            	"color": "red",
+            	"value": 5000
+          	}
+        	]
+      	},
+      	"unit": "short"
+    	},
+    	"overrides": []
+  	},
+  	"gridPos": {
+    	"h": 4,
+    	"w": 6,
+    	"x": 0,
+    	"y": 1
+  	},
+  	"id": 10,
+  	"options": {
+    	"colorMode": "background",
+    	"graphMode": "none",
+    	"justifyMode": "center",
+    	"orientation": "auto",
+    	"reduceOptions": {
+      	"calcs": [
+        	"lastNotNull"
+      	],
+      	"fields": "",
+      	"values": false
+    	},
+    	"textMode": "auto",
+    	"wideLayout": true
+  	},
+  	"pluginVersion": "10.2.3",
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "sum(count_over_time({namespace=\"wordpress\"} [$__range]))",
+      	"instant": true,
+      	"legendFormat": "WordPress",
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Logs WordPress",
+  	"type": "stat"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Total de logs en el rango de tiempo seleccionado para databases",
+  	"fieldConfig": {
+    	"defaults": {
+      	"color": {
+        	"mode": "thresholds"
+      	},
+      	"mappings": [],
+      	"thresholds": {
+        	"mode": "absolute",
+        	"steps": [
+          	{
+            	"color": "green",
+            	"value": null
+          	},
+          	{
+            	"color": "yellow",
+            	"value": 500
+          	},
+          	{
+            	"color": "red",
+            	"value": 2000
+          	}
+        	]
+      	},
+      	"unit": "short"
+    	},
+    	"overrides": []
+  	},
+  	"gridPos": {
+    	"h": 4,
+    	"w": 6,
+    	"x": 6,
+    	"y": 1
+  	},
+  	"id": 11,
+  	"options": {
+    	"colorMode": "background",
+    	"graphMode": "none",
+    	"justifyMode": "center",
+    	"orientation": "auto",
+    	"reduceOptions": {
+      	"calcs": [
+        	"lastNotNull"
+      	],
+      	"fields": "",
+      	"values": false
+    	},
+    	"textMode": "auto",
+    	"wideLayout": true
+  	},
+  	"pluginVersion": "10.2.3",
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "sum(count_over_time({namespace=\"databases\"} [$__range]))",
+      	"instant": true,
+      	"legendFormat": "Databases",
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Logs Databases",
+  	"type": "stat"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Total de logs en el rango de tiempo seleccionado para monitoring",
+  	"fieldConfig": {
+    	"defaults": {
+      	"color": {
+        	"mode": "thresholds"
+      	},
+      	"mappings": [],
+      	"thresholds": {
+        	"mode": "absolute",
+        	"steps": [
+          	{
+            	"color": "green",
+            	"value": null
+          	},
+          	{
+            	"color": "yellow",
+            	"value": 500
+          	},
+          	{
+            	"color": "red",
+            	"value": 2000
+          	}
+        	]
+      	},
+      	"unit": "short"
+    	},
+    	"overrides": []
+  	},
+  	"gridPos": {
+    	"h": 4,
+    	"w": 6,
+    	"x": 12,
+    	"y": 1
+  	},
+  	"id": 12,
+  	"options": {
+    	"colorMode": "background",
+    	"graphMode": "none",
+    	"justifyMode": "center",
+    	"orientation": "auto",
+    	"reduceOptions": {
+      	"calcs": [
+        	"lastNotNull"
+      	],
+      	"fields": "",
+      	"values": false
+    	},
+    	"textMode": "auto",
+    	"wideLayout": true
+  	},
+  	"pluginVersion": "10.2.3",
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "sum(count_over_time({namespace=\"monitoring\"} [$__range]))",
+      	"instant": true,
+      	"legendFormat": "Monitoring",
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Logs Monitoring",
+  	"type": "stat"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Total de logs en el rango de tiempo seleccionado para security",
+  	"fieldConfig": {
+    	"defaults": {
+      	"color": {
+        	"mode": "thresholds"
+      	},
+      	"mappings": [],
+      	"thresholds": {
+        	"mode": "absolute",
+        	"steps": [
+          	{
+            	"color": "green",
+            	"value": null
+          	},
+          	{
+            	"color": "yellow",
+            	"value": 200
+          	},
+          	{
+            	"color": "red",
+            	"value": 1000
+          	}
+        	]
+      	},
+      	"unit": "short"
+    	},
+    	"overrides": []
+  	},
+  	"gridPos": {
+    	"h": 4,
+    	"w": 6,
+    	"x": 18,
+    	"y": 1
+  	},
+  	"id": 13,
+  	"options": {
+    	"colorMode": "background",
+    	"graphMode": "none",
+    	"justifyMode": "center",
+    	"orientation": "auto",
+    	"reduceOptions": {
+      	"calcs": [
+        	"lastNotNull"
+      	],
+      	"fields": "",
+      	"values": false
+    	},
+    	"textMode": "auto",
+    	"wideLayout": true
+  	},
+  	"pluginVersion": "10.2.3",
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "sum(count_over_time({namespace=\"security\"} [$__range]))",
+      	"instant": true,
+      	"legendFormat": "Security",
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Logs Security",
+  	"type": "stat"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Evolución del volumen de logs por namespace a lo largo del tiempo",
+  	"fieldConfig": {
+    	"defaults": {
+      	"color": {
+        	"mode": "palette-classic"
+      	},
+      	"custom": {
+        	"axisBorderShow": false,
+        	"axisCenteredZero": false,
+        	"axisColorMode": "text",
+        	"axisLabel": "logs/s",
+        	"axisPlacement": "auto",
+        	"barAlignment": 0,
+        	"drawStyle": "bars",
+        	"fillOpacity": 60,
+        	"gradientMode": "none",
+        	"hideFrom": {
+          	"legend": false,
+          	"tooltip": false,
+          	"viz": false
+        	},
+        	"insertNulls": false,
+        	"lineInterpolation": "linear",
+        	"lineWidth": 1,
+        	"pointSize": 5,
+        	"scaleDistribution": {
+          	"type": "linear"
+        	},
+        	"showPoints": "never",
+        	"spanNulls": false,
+        	"stacking": {
+          	"group": "A",
+          	"mode": "normal"
+        	},
+        	"thresholdsStyle": {
+          	"mode": "off"
+        	}
+      	},
+      	"mappings": [],
+      	"thresholds": {
+        	"mode": "absolute",
+        	"steps": [
+          	{
+            	"color": "green",
+            	"value": null
+          	},
+          	{
+            	"color": "red",
+            	"value": 80
+          	}
+        	]
+      	}
+    	},
+    	"overrides": []
+  	},
+  	"gridPos": {
+    	"h": 6,
+    	"w": 24,
+    	"x": 0,
+    	"y": 5
+  	},
+  	"id": 14,
+  	"options": {
+    	"legend": {
+      	"calcs": [
+        	"sum"
+      	],
+      	"displayMode": "table",
+      	"placement": "right",
+      	"showLegend": true
+    	},
+    	"tooltip": {
+      	"mode": "multi",
+      	"sort": "none"
+    	}
+  	},
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "sum by (namespace) (count_over_time({namespace=~\"wordpress|databases|monitoring|security\"} [$__interval]))",
+      	"instant": false,
+      	"legendFormat": "{{namespace}}",
+      	"range": true,
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Volumen de logs por namespace",
+  	"type": "timeseries"
+	},
+	{
+  	"collapsed": false,
+  	"datasource": {
+    	"type": "prometheus",
+    	"uid": "prometheus"
+  	},
+  	"gridPos": {
+    	"h": 1,
+    	"w": 24,
+    	"x": 0,
+    	"y": 11
+  	},
+  	"id": 21,
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "prometheus",
+        	"uid": "prometheus"
+      	},
+      	"refId": "A"
+    	}
+  	],
+  	"title": "🔴 Errores",
+  	"type": "row"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Tasa de errores detectados en todos los namespaces (palabras clave: error, Error, ERROR, FATAL, fatal, exception, Exception)",
+  	"fieldConfig": {
+    	"defaults": {
+      	"color": {
+        	"mode": "palette-classic"
+      	},
+      	"custom": {
+        	"axisBorderShow": false,
+        	"axisCenteredZero": false,
+        	"axisColorMode": "text",
+        	"axisLabel": "errores/s",
+        	"axisPlacement": "auto",
+        	"barAlignment": 0,
+        	"drawStyle": "bars",
+        	"fillOpacity": 70,
+        	"gradientMode": "none",
+        	"hideFrom": {
+          	"legend": false,
+          	"tooltip": false,
+          	"viz": false
+        	},
+        	"insertNulls": false,
+        	"lineInterpolation": "linear",
+        	"lineWidth": 1,
+        	"pointSize": 5,
+        	"scaleDistribution": {
+          	"type": "linear"
+        	},
+        	"showPoints": "never",
+        	"spanNulls": false,
+        	"stacking": {
+          	"group": "A",
+          	"mode": "normal"
+        	},
+        	"thresholdsStyle": {
+          	"mode": "off"
+        	}
+      	},
+      	"mappings": [],
+      	"thresholds": {
+        	"mode": "absolute",
+        	"steps": [
+          	{
+            	"color": "green",
+            	"value": null
+          	},
+          	{
+            	"color": "red",
+            	"value": 1
+          	}
+        	]
+      	}
+    	},
+    	"overrides": []
+  	},
+  	"gridPos": {
+    	"h": 6,
+    	"w": 24,
+    	"x": 0,
+    	"y": 12
+  	},
+  	"id": 15,
+  	"options": {
+    	"legend": {
+      	"calcs": [
+        	"sum"
+      	],
+      	"displayMode": "table",
+      	"placement": "right",
+      	"showLegend": true
+    	},
+    	"tooltip": {
+      	"mode": "multi",
+      	"sort": "none"
+    	}
+  	},
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "sum by (namespace) (count_over_time({namespace=~\"wordpress|databases|monitoring|security\"} |~ \"(?i)(error|fatal|exception|critical)\" [$__interval]))",
+      	"instant": false,
+      	"legendFormat": "{{namespace}}",
+      	"range": true,
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Tasa de errores por namespace",
+  	"type": "timeseries"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Logs de nivel ERROR, FATAL o CRITICAL en todos los namespaces del proyecto",
+  	"gridPos": {
+    	"h": 12,
+    	"w": 24,
+    	"x": 0,
+    	"y": 18
+  	},
+  	"id": 16,
+  	"options": {
+    	"dedupStrategy": "none",
+    	"enableLogDetails": true,
+    	"prettifyLogMessage": false,
+    	"showCommonLabels": false,
+    	"showLabels": true,
+    	"showTime": true,
+    	"sortOrder": "Descending",
+    	"wrapLogMessage": true
+  	},
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "{namespace=~\"wordpress|databases|monitoring|security\"} |~ \"(?i)(error|fatal|exception|critical)\"",
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Logs de error recientes",
+  	"type": "logs"
+	},
+	{
+  	"collapsed": false,
+  	"datasource": {
+    	"type": "prometheus",
+    	"uid": "prometheus"
+  	},
+  	"gridPos": {
+    	"h": 1,
+    	"w": 24,
+    	"x": 0,
+    	"y": 30
+  	},
+  	"id": 22,
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "prometheus",
+        	"uid": "prometheus"
+      	},
+      	"refId": "A"
+    	}
+  	],
+  	"title": "🔍 Explorador de logs",
+  	"type": "row"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Volumen de logs filtrado por la selección actual",
+  	"fieldConfig": {
+    	"defaults": {
+      	"color": {
+        	"mode": "palette-classic"
+      	},
+      	"custom": {
+        	"axisBorderShow": false,
+        	"axisCenteredZero": false,
+        	"axisColorMode": "text",
+        	"axisLabel": "",
+        	"axisPlacement": "auto",
+        	"barAlignment": 0,
+        	"drawStyle": "bars",
+        	"fillOpacity": 50,
+        	"gradientMode": "none",
+        	"hideFrom": {
+          	"legend": false,
+          	"tooltip": false,
+          	"viz": false
+        	},
+        	"insertNulls": false,
+        	"lineInterpolation": "linear",
+        	"lineWidth": 1,
+        	"pointSize": 5,
+        	"scaleDistribution": {
+          	"type": "linear"
+        	},
+        	"showPoints": "auto",
+        	"spanNulls": false,
+        	"stacking": {
+          	"group": "A",
+          	"mode": "none"
+        	},
+        	"thresholdsStyle": {
+          	"mode": "off"
+        	}
+      	},
+      	"mappings": [],
+      	"thresholds": {
+        	"mode": "absolute",
+        	"steps": [
+          	{
+            	"color": "green",
+            	"value": null
+          	},
+          	{
+            	"color": "red",
+            	"value": 80
+          	}
+        	]
+      	}
+    	},
+    	"overrides": []
+  	},
+  	"gridPos": {
+    	"h": 4,
+    	"w": 24,
+    	"x": 0,
+    	"y": 31
+  	},
+  	"id": 4,
+  	"options": {
+    	"legend": {
+      	"calcs": [],
+      	"displayMode": "list",
+      	"placement": "bottom",
+      	"showLegend": false
+    	},
+    	"tooltip": {
+      	"mode": "single",
+      	"sort": "none"
+    	}
+  	},
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "sum(count_over_time({namespace=~\"$namespace\", stream=~\"$stream\", container=~\"$container\"} |= \"$query\" [$__interval]))",
+      	"instant": false,
+      	"legendFormat": "Conteo de logs",
+      	"range": true,
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Conteo de logs (selección actual)",
+  	"type": "timeseries"
+	},
+	{
+  	"datasource": {
+    	"type": "loki",
+    	"uid": "loki"
+  	},
+  	"description": "Logs filtrados por namespace, stream, container y búsqueda de texto libre. Namespaces disponibles: wordpress, databases, monitoring, security.",
+  	"gridPos": {
+    	"h": 25,
+    	"w": 24,
+    	"x": 0,
+    	"y": 35
+  	},
+  	"id": 2,
+  	"options": {
+    	"dedupStrategy": "none",
+    	"enableLogDetails": true,
+    	"prettifyLogMessage": false,
+    	"showCommonLabels": false,
+    	"showLabels": true,
+    	"showTime": true,
+    	"sortOrder": "Descending",
+    	"wrapLogMessage": true
+  	},
+  	"targets": [
+    	{
+      	"datasource": {
+        	"type": "loki",
+        	"uid": "loki"
+      	},
+      	"expr": "{namespace=~\"$namespace\", stream=~\"$stream\", container=~\"$container\"} |= \"$query\"",
+      	"refId": "A"
+    	}
+  	],
+  	"title": "Logs — KubeNet",
+  	"type": "logs"
+	}
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+	"kubernetes",
+	"loki",
+	"kubenet"
+  ],
+  "templating": {
+	"list": [
+  	{
+    	"current": {
+      	"selected": false,
+      	"text": "",
+      	"value": ""
+    	},
+    	"description": "Texto a buscar en los logs",
+    	"hide": 0,
+    	"label": "Búsqueda",
+    	"name": "query",
+    	"options": [
+      	{
+        	"selected": true,
+        	"text": "",
+        	"value": ""
+      	}
+    	],
+    	"query": "",
+    	"skipUrlSync": false,
+    	"type": "textbox"
+  	},
+  	{
+    	"allValue": ".+",
+    	"current": {
+      	"selected": true,
+      	"text": [
+        	"wordpress"
+      	],
+      	"value": [
+        	"wordpress"
+      	]
+    	},
+    	"datasource": {
+      	"type": "loki",
+      	"uid": "loki"
+    	},
+    	"definition": "label_values(namespace)",
+    	"description": "Namespace de Kubernetes (wordpress, databases, monitoring, security)",
+    	"hide": 0,
+    	"includeAll": true,
+    	"label": "Namespace",
+    	"multi": true,
+    	"name": "namespace",
+    	"options": [],
+    	"query": "label_values(namespace)",
+    	"refresh": 2,
+    	"regex": "^(wordpress|databases|monitoring|security)$",
+    	"skipUrlSync": false,
+    	"sort": 1,
+    	"type": "query"
+  	},
+  	{
+    	"allValue": ".+",
+    	"current": {
+      	"selected": false,
+      	"text": "All",
+      	"value": "$__all"
+    	},
+    	"datasource": {
+      	"type": "loki",
+      	"uid": "loki"
+    	},
+    	"definition": "label_values(stream)",
+    	"description": "stdout o stderr",
+    	"hide": 0,
+    	"includeAll": true,
+    	"label": "Stream",
+    	"multi": true,
+    	"name": "stream",
+    	"options": [],
+    	"query": "label_values(stream)",
+    	"refresh": 2,
+    	"regex": "",
+    	"skipUrlSync": false,
+    	"sort": 1,
+    	"type": "query"
+  	},
+  	{
+    	"allValue": ".+",
+    	"current": {
+      	"selected": false,
+      	"text": "All",
+      	"value": "$__all"
+    	},
+    	"datasource": {
+      	"type": "loki",
+      	"uid": "loki"
+    	},
+    	"definition": "label_values(container)",
+    	"description": "Nombre del contenedor dentro del pod",
+    	"hide": 0,
+    	"includeAll": true,
+    	"label": "Contenedor",
+    	"multi": true,
+    	"name": "container",
+    	"options": [],
+    	"query": "label_values(container)",
+    	"refresh": 2,
+    	"regex": "",
+    	"skipUrlSync": false,
+    	"sort": 1,
+    	"type": "query"
+  	}
+	]
+  },
+  "time": {
+	"from": "now-3h",
+	"to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "KubeNet — Loki Logs",
+  "uid": "kubenet-loki-v1",
+  "version": 2,
+  "weekStart": ""
+}
+
