@@ -18,6 +18,7 @@ DOMAINS=(
     "prometheus.monitoring.local"
     "grafana.monitoring.local"
     "minio.storage.local"
+    "jaeger.monitoring.local"
 )
 CRITICAL_NAMESPACES=("cert-manager" "databases" "ingress-nginx" "keda" "monitoring" "storage" "velero" "wordpress")
 
@@ -154,4 +155,5 @@ echo "=================================================="
 echo "  🌐 WordPress  : https://wp-k8s.local"
 echo "  📊 Grafana    : https://grafana.monitoring.local (User: admin)"
 echo "  🗄️  MinIO      : https://minio.storage.local"
+echo "  🔍 Jaeger     : https://jaeger.monitoring.local"
 echo "=================================================="
