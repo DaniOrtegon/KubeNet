@@ -91,19 +91,3 @@ spec:
                 name: jaeger-query     # Service que expone la UI de Jaeger
                 port:
                   number: 16686
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
