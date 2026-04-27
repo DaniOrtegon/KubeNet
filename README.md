@@ -48,6 +48,29 @@ El objetivo no es levantar WordPress. Es demostrar:
 
 ## ⚡ Despliegue rápido
 
+### Requisitos previos
+
+**Hardware del host:**
+
+| Recurso | Mínimo | Recomendado | Base del cálculo |
+|---|---|---|---|
+| RAM | 6 GB | 8 GB | 3.7 GB reposo + 540 Mi pico KEDA + margen OS |
+| CPU | 4 cores | 4–6 cores | 3.2 cores requests declarados; 602m uso base real |
+| Disco Libre | 40 GB | 50 GB | ~25 GB PVCs + ~12 GB imágenes Docker + backups |
+| SO | Ubuntu 22.04 | Ubuntu 24.04 / Debian 12 | Entorno de desarrollo y pruebas del proyecto |
+
+**Software previo al despliegue:**
+
+| Herramienta | Versión mínima | Versión probada | Instalada por |
+|---|---|---|---|
+| Docker | 24.0 | 28.3.1 | Manual / `01-install.sh` |
+| kubectl | 1.28 | 1.35.4 | `01-install.sh` |
+| Minikube | 1.32 | 1.38.1 | `01-install.sh` |
+| Helm | 3.10 | 3.20.2 | `01-install.sh` |
+| git | 2.x | 2.x | Manual (prerequisito) |
+| jq | 1.6 | 1.6 | `01-install.sh` |
+| hey | cualquiera | — | `apt` — Opcional, solo para pruebas de carga |
+
 ```bash
 # 1. Clonar el repositorio
 git clone <repo>
@@ -71,14 +94,6 @@ Acceso tras el despliegue: **https://wp-k8s.local**
 
 > ✔ `deploy.sh` es **idempotente**: puede ejecutarse múltiples veces sin romper el estado del clúster.
 > El navegador mostrará un aviso de certificado self-signed — acepta la excepción.
-
-**Requisitos mínimos de la máquina:**
-
-| Recurso | Mínimo |
-|---|---|
-| CPU | 4 cores |
-| RAM | 8 GB |
-| Disco | 40 GB |
 
 ---
 
