@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/DaniOrtegon/KubeNet/actions/workflows/ci.yml/badge.svg)](https://github.com/DaniOrtegon/KubeNet/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Kubernetes](https://img.shields.io/badge/Kubernetes-Minikube-326CE5?logo=kubernetes)
-![Stack](https://img.shields.io/badge/Stack-WordPress%20%7C%20MariaDB%20%7C%20Redis%20%7C%20KEDA-informational)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-Minikube-326CE5?logo=kubernetes)](https://github.com/DaniOrtegon/KubeNet)
+[![Stack](https://img.shields.io/badge/Stack-WordPress%20%7C%20MariaDB%20%7C%20Redis%20%7C%20KEDA-informational)](https://github.com/DaniOrtegon/KubeNet)
 
 > Infraestructura cloud-native completa sobre Minikube: alta disponibilidad, escalado por tráfico real, observabilidad end-to-end y seguridad en profundidad. Entorno de producción simulado, no una demo básica.
 
