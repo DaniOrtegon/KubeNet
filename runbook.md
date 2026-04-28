@@ -1,179 +1,298 @@
-# RUNBOOK — WordPress HA en Kubernetes
+# RUNBOOK — KubeNet WordPress HA on Kubernetes
 
-**Proyecto:** KubeNet — WordPress HA en Minikube  
-**Versión:** 1.2 (Actualizado tras sesión de fixes DNS/Grafana)  
-**Entorno:** Minikube + Kubernetes v1.35
+**Project:** KubeNet — WordPress HA on Minikube  
+**Version:** 1.3  
+**Environment:** Minikube + Kubernetes v1.35
 
-> ⚠️ **Nota de seguridad:** Este runbook no contiene credenciales en texto plano.  
-> Todos los comandos leen las contraseñas directamente desde los Kubernetes Secrets del clúster.
+> ⚠️ **Security note:** This runbook contains no plaintext credentials.
+> All commands read passwords directly from the cluster's Kubernetes Secrets.
 
 ---
 
-## Cómo leer credenciales del clúster
+## Reading cluster credentials
 
-Ejecuta este bloque antes de realizar operaciones manuales para cargar las contraseñas en tu sesión:
+Run this block before any manual operation to load passwords into your session:
 
 ```bash
 # MariaDB Root
 MARIADB_ROOT_PASS=$(kubectl get secret mariadb-secret -n databases \
   -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
-echo "MariaDB Root: $MARIADB_ROOT_PASS"
 
 # MariaDB User
 MARIADB_USER_PASS=$(kubectl get secret mariadb-secret -n databases \
   -o jsonpath='{.data.mariadb-user-password}' | base64 -d)
-echo "MariaDB User: $MARIADB_USER_PASS"
 
 # Redis
 REDIS_PASS=$(kubectl get secret redis-secret -n databases \
   -o jsonpath='{.data.redis-password}' | base64 -d)
-echo "Redis: $REDIS_PASS"
 ```
 
 ---
 
-## Índice
+## Index
 
-1. [Prometheus — Lockfile corrupto](#1-prometheus--lockfile-corrupto)
-2. [Namespace atascado en Terminating](#2-namespace-atascado-en-terminating)
-3. [Sealed Secrets inválidos](#3-sealed-secrets-inválidos)
-4. [MariaDB — Replicación rota](#4-mariadb--replicación-rota)
-5. [WordPress — Fallo de conexión externa (DNS)](#5-wordpress--fallo-de-conexión-externa-dns)
-6. [Grafana — Login inválido (Desfase de DB)](#6-grafana--login-inválido-desfase-de-db)
-7. [KEDA / Velero — Error ImagePullBackOff](#7-keda--velero--error-imagepullbackoff)
-8. [Minikube Tunnel — Ingress Inaccesible](#8-minikube-tunnel--ingress-inaccesible)
+1. [Prometheus — Corrupted lockfile](#1-prometheus--corrupted-lockfile)
+2. [Namespace stuck in Terminating](#2-namespace-stuck-in-terminating)
+3. [Sealed Secrets invalid after key change](#3-sealed-secrets-invalid-after-key-change)
+4. [MariaDB — Broken replication](#4-mariadb--broken-replication)
+5. [WordPress — External connection failure (DNS)](#5-wordpress--external-connection-failure-dns)
+6. [Grafana — Invalid login (DB drift)](#6-grafana--invalid-login-db-drift)
+7. [ImagePullBackOff on Minikube](#7-imagepullbackoff-on-minikube)
+8. [Minikube Tunnel — Ingress unreachable](#8-minikube-tunnel--ingress-unreachable)
+9. [Redis — CrashLoopBackOff (race condition with Sealed Secrets)](#9-redis--crashloopbackoff-race-condition-with-sealed-secrets)
+10. [KEDA — New pods stuck in Pending](#10-keda--new-pods-stuck-in-pending)
 
 ---
 
-## 1. Prometheus — Lockfile corrupto
+## Quick error reference
 
-**Síntoma:** El pod de Prometheus está en `CrashLoopBackOff` y los logs muestran `flock: resource temporarily unavailable`.
+| Problem | Key symptom | Section |
+|---|---|---|
+| WP no internet | Could not resolve host | §5 |
+| Grafana locked | Invalid credentials | §6 |
+| Pods won't start | ImagePullBackOff | §7 |
+| Ingress not responding | Timeout / 404 | §8 |
+| Redis won't start | CrashLoopBackOff on boot | §9 |
+| KEDA doesn't scale | New pods stay Pending | §10 |
+| Namespace won't delete | Stuck in Terminating | §2 |
+| Replication broken | Slave_IO_Running: No | §4 |
 
-**Solución:** Borrar el archivo de bloqueo en el PVC.
+---
 
+## 1. Prometheus — Corrupted lockfile
+
+**Symptom:** Prometheus pod is in `CrashLoopBackOff` and logs show `flock: resource temporarily unavailable`.
+
+**Cause:** The lock file was not cleaned up after an unexpected shutdown.
+
+**Fix:**
 ```bash
 kubectl exec -it -n monitoring prometheus-server-0 -- rm -f /data/queries.active
 ```
 
 ---
 
-## 2. Namespace atascado en Terminating
+## 2. Namespace stuck in Terminating
 
-**Síntoma:** El namespace no se borra tras varios minutos.
+**Symptom:** Namespace does not delete after several minutes.
 
-**Solución:** Eliminar los finalizers manualmente mediante la API.
+**Cause:** Resources from the `metrics.k8s.io` API group leave finalizers that block the deletion cycle indefinitely.
 
+**Fix:** Remove finalizers manually via the API.
 ```bash
 kubectl get namespace <namespace> -o json \
   | jq '.spec.finalizers = []' \
   | kubectl replace --raw "/api/v1/namespaces/<namespace>/finalize" -f -
 ```
 
----
-
-## 3. Sealed Secrets inválidos
-
-**Síntoma:** Los pods de bases de datos dan error de login tras un cambio de clave.
-
-**Solución:** Borrar el Secret sellado y volver a generar el YAML usando `kubeseal` con la clave pública del clúster.
+> This fix is implemented as the `delete_namespace_safe` function in `lib.sh`.
 
 ---
 
-## 4. MariaDB — Replicación rota
+## 3. Sealed Secrets invalid after key change
 
-**Síntoma:** `Slave_IO_Running: No` al ejecutar `SHOW SLAVE STATUS\G`.
+**Symptom:** Database pods show login errors after a cluster rebuild or key rotation.
 
-**Solución:**
+**Cause:** Sealed Secrets are encrypted with the cluster's private key. If the cluster is recreated, the old sealed secrets cannot be decrypted.
 
-1. Obtener coordenadas del Master en `mariadb-0`.
-2. Reiniciar el slave en `mariadb-1`:
-
-```sql
-STOP SLAVE;
-CHANGE MASTER TO
-  MASTER_PASSWORD='$MARIADB_REPL_PASS',
-  MASTER_LOG_FILE='...',
-  MASTER_LOG_POS=...;
-START SLAVE;
+**Fix:**
+1. Delete the existing sealed secret.
+2. Re-encrypt using `kubeseal` with the new cluster's public key:
+```bash
+kubeseal --fetch-cert > pub-cert.pem
+kubeseal --cert pub-cert.pem -f secret.yaml -w sealed-secret.yaml
+kubectl apply -f sealed-secret.yaml
 ```
 
 ---
 
-## 5. WordPress — Fallo de conexión externa (DNS)
+## 4. MariaDB — Broken replication
 
-**Síntoma:** Error "An unexpected error occurred" en el panel de WordPress. `curl -I https://wordpress.org` falla con `error (6)`.
+**Symptom:** `Slave_IO_Running: No` when running `SHOW SLAVE STATUS\G`.
 
-**Causa:** CoreDNS no resuelve nombres externos en entornos Minikube/Debian.
+**Fix:**
 
-**Solución:**
+1. Get the current binlog coordinates from the primary (`mariadb-0`):
+```bash
+kubectl exec -n databases mariadb-0 -- \
+  mysql -u root -p"$MARIADB_ROOT_PASS" \
+  -e 'SHOW MASTER STATUS\G' 2>/dev/null
+```
 
-1. Editar ConfigMap:
-   ```bash
-   kubectl edit configmap coredns -n kube-system
-   ```
-2. Cambiar `forward . /etc/resolv.conf` por `forward . 8.8.8.8 8.8.4.4`.
-3. Reiniciar CoreDNS:
-   ```bash
-   kubectl rollout restart deployment coredns -n kube-system
-   ```
+2. Reconnect the replica (`mariadb-1`) using those coordinates:
+```bash
+kubectl exec -n databases mariadb-1 -- \
+  mysql -u root -p"$MARIADB_ROOT_PASS" 2>/dev/null << EOF
+STOP SLAVE;
+CHANGE MASTER TO
+  MASTER_HOST='mariadb-0.mariadb-headless.databases.svc.cluster.local',
+  MASTER_USER='replicator',
+  MASTER_PASSWORD='$MARIADB_ROOT_PASS',
+  MASTER_LOG_FILE='<file>',
+  MASTER_LOG_POS=<pos>;
+START SLAVE;
+EOF
+```
+
+3. Verify:
+```bash
+kubectl exec -n databases mariadb-1 -- \
+  mysql -u root -p"$MARIADB_ROOT_PASS" \
+  -e 'SHOW SLAVE STATUS\G' 2>/dev/null \
+  | grep -E 'Running|Behind'
+```
+
+Expected output: `Slave_IO_Running: Yes`, `Slave_SQL_Running: Yes`, `Seconds_Behind_Master: 0`
 
 ---
 
-## 6. Login inválido (Desfase de DB)
+## 5. WordPress — External connection failure (DNS)
 
-**Síntoma:** El login de cualquier recurso falla aunque el Secret sea correcto en Kubernetes.
+**Symptom:** "An unexpected error occurred" in the WordPress dashboard. `curl -I https://wordpress.org` fails with `error (6)`.
 
-**Causa:** La base de datos interna de Grafana no se actualiza automáticamente si se cambia el Secret tras el primer despliegue.
+**Cause:** After reboots without `minikube stop`, the virtual gateway `192.168.49.1` stops forwarding DNS. CoreDNS inherits the broken resolver and all pods fail to resolve external domains.
 
-**Solución:** Ejecutar el script de arranque general:
+**Fix:**
 
+1. Edit the CoreDNS ConfigMap:
+```bash
+kubectl edit configmap coredns -n kube-system
+```
+
+2. Replace `forward . /etc/resolv.conf` with:
+```
+forward . 8.8.8.8 8.8.4.4
+```
+
+3. Restart CoreDNS:
+```bash
+kubectl rollout restart deployment coredns -n kube-system
+```
+
+> `start_all.sh` applies this fix automatically on every cluster startup.
+
+---
+
+## 6. Grafana — Invalid login (DB drift)
+
+**Symptom:** Login fails even though the Kubernetes Secret is correct.
+
+**Cause:** Grafana persists the admin user in an internal SQLite database. If the Kubernetes Secret changes after the first deployment, the internal DB is not automatically updated.
+
+**Fix:** Run the startup script, which resets the password automatically:
 ```bash
 ./start_all.sh
 ```
 
-> Si el problema persiste, como solución alternativa puedes resetear la contraseña directamente vía CLI:
-> ```bash
-> kubectl exec -n monitoring -it deployment/grafana -- \
->   grafana cli admin reset-admin-password "TuNuevaPassword123"
-> ```
+If the problem persists, reset the password directly via CLI:
+```bash
+kubectl exec -n monitoring -it deployment/grafana -- \
+  grafana cli admin reset-admin-password "$(kubectl get secret grafana-secret \
+  -n monitoring -o jsonpath='{.data.admin-password}' | base64 -d)"
+```
 
 ---
 
-## 7. KEDA / Velero — Error ImagePullBackOff
+## 7. ImagePullBackOff on Minikube
 
-**Síntoma:** Pods atascados intentando descargar imágenes (especialmente `minio/mc`).
+**Symptom:** Pods stuck trying to pull images (especially `minio/mc`).
 
-**Solución:**
+**Cause:** Minikube uses a separate Docker daemon from the host. With `pullPolicy: Always`, Kubernetes tries to pull local images from a non-existent remote registry. Also triggered by deprecated or non-existent image tags.
 
-1. Actualizar tags en los manifiestos (evitar versiones de 2024 deprecadas).
-2. Forzar carga manual:
-   ```bash
-   minikube image load minio/mc:latest
-   ```
+**Fix:**
 
----
+1. Update the image tag in the manifest to a valid version.
+2. Force-load the image into Minikube:
+```bash
+minikube image load <image>:<tag>
+```
 
-## 8. Minikube Tunnel — Ingress Inaccesible
-
-**Síntoma:** Dominios `.local` no cargan. El Ingress no muestra IP.
-
-**Solución:**
-
-1. ```bash
-   sudo pkill -f minikube tunnel
-   ```
-2. ```bash
-   sudo minikube tunnel --cleanup
-   ```
-3. Verificar que `/etc/hosts` apunta a la IP correcta de Minikube.
+3. Ensure the manifest uses `imagePullPolicy: Never` for locally loaded images.
 
 ---
 
-## Referencia rápida de errores
+## 8. Minikube Tunnel — Ingress unreachable
 
-| Problema             | Síntoma clave             | Runbook |
-|----------------------|---------------------------|---------|
-| WP sin internet      | Could not resolve host    | §5      |
-| Grafana bloqueado    | Invalid credentials       | §6      |
-| Pods no arrancan     | ImagePullBackOff          | §7      |
-| Ingress no responde  | Timeout / 404             | §8      |
+**Symptom:** `.local` domains don't load. The Ingress shows no EXTERNAL-IP.
+
+**Cause:** The tunnel systemd service ran as an unprivileged user or started before Minikube was ready.
+
+**Fix:**
+
+1. Kill the existing tunnel:
+```bash
+sudo pkill -f "minikube tunnel"
+```
+
+2. Clean up stale routes:
+```bash
+sudo minikube tunnel --cleanup
+```
+
+3. Restart via the startup script (handles permissions and timing automatically):
+```bash
+./start_all.sh
+```
+
+4. Verify `/etc/hosts` points to the correct Minikube IP:
+```bash
+minikube ip
+cat /etc/hosts | grep k8s
+```
+
+> The tunnel systemd service must run with `User=root` and have `MINIKUBE_HOME` and `KUBECONFIG` pointing to the real user's home directory.
+
+---
+
+## 9. Redis — CrashLoopBackOff (race condition with Sealed Secrets)
+
+**Symptom:** Redis pods crash on startup with a missing Secret error, even though the Sealed Secret manifest was applied.
+
+**Cause:** Redis starts before the Sealed Secrets controller finishes decrypting and creating the actual Secret. The pod tries to mount a Secret that doesn't exist yet.
+
+**Fix:** The deployment includes an `initContainer` that actively waits until the Secret is available before allowing the main container to start:
+
+```yaml
+initContainers:
+  - name: wait-for-secret
+    image: bitnami/kubectl
+    command:
+      - sh
+      - -c
+      - |
+        until kubectl get secret redis-secret -n databases; do
+          echo "Waiting for redis-secret..."; sleep 2;
+        done
+```
+
+If the issue reappears after a cluster rebuild, verify the Sealed Secrets controller is Running before applying other manifests:
+```bash
+kubectl get pods -n kube-system | grep sealed-secrets
+```
+
+---
+
+## 10. KEDA — New pods stuck in Pending
+
+**Symptom:** KEDA triggers scaling but new WordPress pods remain in `Pending` state. No error is visible in KEDA logs.
+
+**Cause:** The namespace `ResourceQuota` allows fewer pods than KEDA tries to create. The quota error is not surfaced in KEDA's own logs.
+
+**Fix:**
+
+1. Check the current quota usage:
+```bash
+kubectl describe resourcequota -n wordpress
+```
+
+2. Check for quota-related events:
+```bash
+kubectl get events -n wordpress --sort-by='.lastTimestamp' | grep -i quota
+```
+
+3. Update the ResourceQuota to accommodate KEDA's `maxReplicaCount` plus margin for sidecars and temporary jobs:
+```bash
+kubectl edit resourcequota -n wordpress
+```
+
+> Rule: `ResourceQuota.pods` must be ≥ `maxReplicaCount` + 2 (margin for sidecars and backup jobs).
