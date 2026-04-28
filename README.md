@@ -1,6 +1,6 @@
 # 🚀 KubeNet — WordPress HA en Kubernetes
 
-![CI](https://github.com/DaniOrtegon/KubeNet/actions/workflows/validate.yml/badge.svg)
+[![CI](https://github.com/DaniOrtegon/KubeNet/actions/workflows/ci.yml/badge.svg)](https://github.com/DaniOrtegon/KubeNet/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-Minikube-326CE5?logo=kubernetes)
 ![Stack](https://img.shields.io/badge/Stack-WordPress%20%7C%20MariaDB%20%7C%20Redis%20%7C%20KEDA-informational)
