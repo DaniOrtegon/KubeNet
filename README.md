@@ -80,7 +80,7 @@ The goal is not to run WordPress. It's to demonstrate:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/DaniOrtegon/KubeNet.git
+git clone https://github.com/DaniOrtegon/kubenet.git
 cd KubeNet
 
 # 2. Install dependencies (Docker, kubectl, Minikube, Helm)
